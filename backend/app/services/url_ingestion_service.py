@@ -5,7 +5,7 @@ import httpx
 
 
 class URLIngestionService:
-    """Download contract files from HTTP/HTTPS URLs."""
+    """Download contract files or webpages from HTTP/HTTPS URLs."""
 
     ALLOWED_EXTENSIONS = {
         ".txt",
@@ -14,6 +14,7 @@ class URLIngestionService:
         ".png",
         ".jpg",
         ".jpeg",
+        ".html",
     }
 
     MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024
@@ -43,6 +44,14 @@ class URLIngestionService:
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 timeout=30.0,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 "
+                        "(Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 "
+                        "Chrome/120.0 Safari/537.36"
+                    )
+                },
             ) as client:
 
                 response = await client.get(url)
@@ -63,30 +72,29 @@ class URLIngestionService:
 
         if not content:
             raise ValueError(
-                "The URL returned an empty file."
+                "The URL returned an empty response."
             )
 
         if len(content) > cls.MAX_DOWNLOAD_SIZE:
             raise ValueError(
-                "Downloaded file exceeds the 20 MB limit."
+                "Downloaded content exceeds the 20 MB limit."
             )
 
         extension = cls._detect_extension(
-            url=url,
+            url=str(response.url),
             content_type=response.headers.get(
                 "content-type",
                 "",
             ),
         )
 
-        if extension not in cls.ALLOWED_EXTENSIONS:
+        if not extension:
             raise ValueError(
-                "Unsupported contract file type. "
-                "Supported types: TXT, PDF, DOCX, PNG, JPG, JPEG."
+                "Unable to determine the content type of the URL."
             )
 
         filename = cls._build_filename(
-            url=url,
+            url=str(response.url),
             extension=extension,
         )
 
@@ -117,16 +125,27 @@ class URLIngestionService:
 
         content_type_map = {
             "text/plain": ".txt",
+            "text/html": ".html",
+            "application/xhtml+xml": ".html",
             "application/pdf": ".pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
             "image/png": ".png",
             "image/jpeg": ".jpg",
         }
 
-        return content_type_map.get(
+        detected = content_type_map.get(
             content_type,
-            "",
         )
+
+        if detected:
+            return detected
+
+        # If the URL has no recognizable extension and the server
+        # does not provide a known content type, treat it as a webpage.
+        if not extension:
+            return ".html"
+
+        return ""
 
     @staticmethod
     def _build_filename(
@@ -147,5 +166,8 @@ class URLIngestionService:
 
             if existing_extension in URLIngestionService.ALLOWED_EXTENSIONS:
                 return filename
+
+        if extension == ".html":
+            return "webpage_contract.html"
 
         return f"downloaded_contract{extension}"

@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+from html.parser import HTMLParser
 
 from docx import Document
 from pypdf import PdfReader
@@ -8,9 +9,63 @@ import fitz  # PyMuPDF
 from app.services.ocr_service import OCRService
 
 
+class _HTMLTextExtractor(HTMLParser):
+    """Extract readable text from an HTML document."""
+
+    SKIP_TAGS = {"script", "style", "noscript", "svg", "head"}
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+
+        if tag in self.SKIP_TAGS:
+            self.skip_depth += 1
+
+        if tag in {"p", "div", "section", "article", "main", "li", "br", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+
+        if tag in {"p", "div", "section", "article", "main", "li", "br", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.parts.append("\n")
+
+        if tag in self.SKIP_TAGS and self.skip_depth > 0:
+            self.skip_depth -= 1
+
+    def handle_data(self, data):
+        if self.skip_depth == 0:
+            text = data.strip()
+
+            if text:
+                self.parts.append(text)
+
+    def get_text(self) -> str:
+        text = " ".join(self.parts)
+
+        lines = []
+        previous_blank = False
+
+        for line in text.splitlines():
+            cleaned = " ".join(line.split())
+
+            if cleaned:
+                lines.append(cleaned)
+                previous_blank = False
+            elif not previous_blank:
+                lines.append("")
+                previous_blank = True
+
+        return "\n\n".join(lines).strip()
+
+
 class TextExtractionService:
     """
-    Extract text from supported contract files.
+    Extract text from supported contract files and web pages.
 
     PDF extraction uses PyMuPDF first because it preserves
     the visual reading order of PDF content better than pypdf,
@@ -29,6 +84,9 @@ class TextExtractionService:
 
         if extension == ".txt":
             return TextExtractionService._extract_txt(content)
+
+        if extension == ".html":
+            return TextExtractionService._extract_html(content)
 
         if extension == ".pdf":
             return TextExtractionService._extract_pdf(content)
@@ -63,6 +121,40 @@ class TextExtractionService:
         return text.strip()
 
     # ================================================================
+    # HTML
+    # ================================================================
+
+    @staticmethod
+    def _extract_html(content: bytes) -> str:
+
+        try:
+            html = content.decode(
+                "utf-8",
+                errors="replace",
+            )
+
+            parser = _HTMLTextExtractor()
+            parser.feed(html)
+            parser.close()
+
+            extracted_text = parser.get_text()
+
+            if not extracted_text:
+                raise ValueError(
+                    "No readable text could be extracted from the webpage."
+                )
+
+            return extracted_text
+
+        except ValueError:
+            raise
+
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to extract text from webpage: {exc}"
+            ) from exc
+
+    # ================================================================
     # PDF
     # ================================================================
 
@@ -88,7 +180,6 @@ class TextExtractionService:
         # ------------------------------------------------------------
 
         try:
-
             document = fitz.open(
                 stream=content,
                 filetype="pdf",
