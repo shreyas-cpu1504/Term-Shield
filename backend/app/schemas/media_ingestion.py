@@ -11,6 +11,7 @@ class MediaType(str, Enum):
 class MediaIngestionResponse(BaseModel):
     message: str
     media_id: str
+    file_id: str
     media_type: MediaType
     filename: str
     size_bytes: int
