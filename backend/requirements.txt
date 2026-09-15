@@ -28,3 +28,9 @@ pytesseract==0.3.13
 httpx==0.28.1
 reportlab==5.0.1
 SQLAlchemy==2.0.52
+google-genai==2.19.0
+openai-whisper==20250625
+torch==2.13.0
+pytest==9.1.1
+aiosqlite==0.22.1
+pytest-asyncio==1.4.0

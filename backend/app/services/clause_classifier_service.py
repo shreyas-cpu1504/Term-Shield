@@ -61,6 +61,8 @@ class ClauseClassifierService:
         ],
 
         "PAYMENT": [
+            r"\b(?:shall|must|will|agrees?\s+to)\s+pay\b",
+            r"\bpay\s+[\d,]+",
             r"\bpayment\s+terms\b",
             r"\bpayment\s+schedule\b",
             r"\bamount\s+payable\b",
@@ -283,6 +285,7 @@ class ClauseClassifierService:
         ],
 
         "PAYMENT": [
+            ("pay", 4.0),
             ("payment", 4.0),
             ("payment terms", 6.0),
             ("payment schedule", 6.0),
