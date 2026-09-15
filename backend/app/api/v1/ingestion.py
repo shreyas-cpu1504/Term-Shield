@@ -1,5 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.v1.auth import get_current_user
+from app.models.user import User
 from app.schemas.ingestion import (
     IngestionResponse,
     TextIngestionRequest,
@@ -19,6 +21,7 @@ router = APIRouter(
 )
 async def ingest_text(
     request: TextIngestionRequest,
+    current_user: User = Depends(get_current_user),
 ) -> IngestionResponse:
     normalized = IngestionService.process_text(
         input_type=request.input_type,

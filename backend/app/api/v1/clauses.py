@@ -1,7 +1,12 @@
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
+from app.core.ownership import require_owned_contract
+from app.core.database import get_db
+from app.models.user import User
 from app.schemas.clause import ClauseSegmentationResponse
 from app.schemas.clause_analysis import ClauseAnalysis, ClauseAnalysisResponse
 from app.schemas.clause_relationship import ClauseRelationshipResponse
@@ -207,7 +212,13 @@ def _load_clauses(file_id: str):
     "/{file_id}/relationships",
     response_model=ClauseRelationshipResponse,
 )
-def get_clause_relationships(file_id: str):
+async def get_clause_relationships(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_owned_contract(db, current_user, file_id)
+
     clauses = _load_clauses(file_id)
 
     relationships = ClauseRelationshipService.analyze_relationships(
@@ -230,7 +241,11 @@ def get_clause_relationships(file_id: str):
 )
 async def get_clauses(
     file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ClauseSegmentationResponse:
+
+    await require_owned_contract(db, current_user, file_id)
 
     clauses = _load_clauses(file_id)
 
@@ -247,7 +262,11 @@ async def get_clauses(
 )
 async def get_clause_analysis(
     file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ClauseAnalysisResponse:
+
+    await require_owned_contract(db, current_user, file_id)
 
     clauses = _load_clauses(file_id)
 
@@ -273,7 +292,11 @@ async def get_clause_analysis(
 )
 async def get_contract_summary(
     file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ContractSummary:
+
+    await require_owned_contract(db, current_user, file_id)
 
     clauses = _load_clauses(file_id)
 

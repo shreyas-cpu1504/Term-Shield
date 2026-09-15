@@ -7,9 +7,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-client = TestClient(app)
-
-
 def _create_pdf() -> bytes:
     document = pymupdf.open()
 
@@ -31,7 +28,7 @@ def _create_pdf() -> bytes:
         document.close()
 
 
-def test_url_request_requires_valid_url():
+def test_url_request_requires_valid_url(client):
     response = client.post(
         "/api/v1/ingestion/url",
         json={
@@ -42,7 +39,7 @@ def test_url_request_requires_valid_url():
     assert response.status_code == 422
 
 
-def test_url_request_requires_url():
+def test_url_request_requires_url(client):
     response = client.post(
         "/api/v1/ingestion/url",
         json={},

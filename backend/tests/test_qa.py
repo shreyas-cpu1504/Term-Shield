@@ -1,15 +1,9 @@
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from app.main import app
 from app.services.file_ingestion_service import FileIngestionService
 
 
-client = TestClient(app)
-
-
-def test_contract_qa_endpoint():
+def test_contract_qa_endpoint(client):
     content = (
         b"1. Payment\n"
         b"The Customer shall pay the invoice within 30 days.\n\n"
@@ -82,7 +76,7 @@ def test_contract_qa_endpoint():
             clauses_path.unlink()
 
 
-def test_contract_qa_termination_question():
+def test_contract_qa_termination_question(client):
     content = (
         b"1. Payment\n"
         b"The Customer shall pay the invoice within 30 days.\n\n"
@@ -145,7 +139,7 @@ def test_contract_qa_termination_question():
             clauses_path.unlink()
 
 
-def test_contract_qa_unknown_file_returns_404():
+def test_contract_qa_unknown_file_returns_404(client):
     response = client.post(
         "/api/v1/qa/does-not-exist",
         json={
@@ -159,7 +153,7 @@ def test_contract_qa_unknown_file_returns_404():
     )
 
 
-def test_contract_qa_rejects_empty_question():
+def test_contract_qa_rejects_empty_question(client):
     response = client.post(
         "/api/v1/qa/some-file",
         json={

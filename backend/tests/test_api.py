@@ -1,16 +1,19 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.file_ingestion_service import FileIngestionService
 
 
-client = TestClient(app)
+@pytest.fixture()
+def unauth_client() -> TestClient:
+    return TestClient(app)
 
 
-def test_health_endpoint():
-    response = client.get("/health")
+def test_health_endpoint(unauth_client):
+    response = unauth_client.get("/health")
 
     assert response.status_code == 200
 
@@ -21,7 +24,7 @@ def test_health_endpoint():
     assert data["version"] == "0.1.0"
 
 
-def test_text_ingestion_endpoint():
+def test_text_ingestion_endpoint(client):
     response = client.post(
         "/api/v1/ingestion/text",
         json={
@@ -41,7 +44,7 @@ def test_text_ingestion_endpoint():
     )
 
 
-def test_text_ingestion_rejects_empty_content():
+def test_text_ingestion_rejects_empty_content(client):
     response = client.post(
         "/api/v1/ingestion/text",
         json={
@@ -53,7 +56,7 @@ def test_text_ingestion_rejects_empty_content():
     assert response.status_code == 422
 
 
-def test_clause_endpoints_return_404_for_unknown_file():
+def test_clause_endpoints_return_404_for_unknown_file(client):
     file_id = "api-test-file-that-does-not-exist"
 
     endpoints = [
@@ -72,7 +75,7 @@ def test_clause_endpoints_return_404_for_unknown_file():
         )
 
 
-def test_file_upload_endpoint():
+def test_file_upload_endpoint(client):
     content = (
         b"1. Payment\n"
         b"The Customer shall pay the invoice within 30 days.\n\n"
@@ -123,7 +126,7 @@ def test_file_upload_endpoint():
         extracted_path.unlink()
 
 
-def test_contract_analysis_pipeline():
+def test_contract_analysis_pipeline(client):
     content = (
         b"1. Payment\n"
         b"The Customer shall pay 10,000 USD within 30 days.\n\n"
@@ -253,5 +256,86 @@ def test_contract_analysis_pipeline():
             / f"{file_id}.json"
         )
 
+        if clauses_path.exists():
+            clauses_path.unlink()
+
+def test_unauthenticated_requests_are_rejected(unauth_client):
+    """Phase 3: protected endpoints must return 401 without a token."""
+
+    protected = [
+        ("post", "/api/v1/ingestion/text", {"json": {"input_type": "text", "content": "hello"}}),
+        ("post", "/api/v1/ingestion/url", {"json": {"url": "https://example.com/x.pdf"}}),
+        ("get", "/api/v1/clauses/some-file", {}),
+        ("get", "/api/v1/clauses/some-file/analysis", {}),
+        ("get", "/api/v1/clauses/some-file/relationships", {}),
+        ("get", "/api/v1/clauses/some-file/summary", {}),
+        ("post", "/api/v1/qa/some-file", {"json": {"question": "what?"}}),
+    ]
+
+    for method, url, kwargs in protected:
+        response = getattr(unauth_client, method)(url, **kwargs)
+
+        assert response.status_code == 401, f"{method} {url} -> {response.status_code}"
+        assert response.json()["detail"] in {
+            "Authentication required",
+            "Invalid or expired authentication token",
+        }
+
+
+def test_user_cannot_access_another_users_contract(client, other_client):
+    """Phase 3: users must only see their own contract data."""
+    content = (
+        b"1. Payment\n"
+        b"The Customer shall pay the invoice within 30 days.\n"
+    )
+
+    upload_response = other_client.post(
+        "/api/v1/ingestion/file",
+        files={"file": ("isolation_test.txt", content, "text/plain")},
+    )
+
+    assert upload_response.status_code == 200
+
+    file_id = upload_response.json()["file_id"]
+
+    try:
+        for url in (
+            f"/api/v1/clauses/{file_id}",
+            f"/api/v1/clauses/{file_id}/analysis",
+            f"/api/v1/clauses/{file_id}/relationships",
+            f"/api/v1/clauses/{file_id}/summary",
+        ):
+            response = client.get(url)
+
+            assert response.status_code == 404, (
+                f"{url} returned {response.status_code}"
+            )
+            assert response.json()["detail"] == "Extracted document not found."
+
+        qa_response = client.post(
+            f"/api/v1/qa/{file_id}",
+            json={"question": "When is payment due?"},
+        )
+
+        assert qa_response.status_code == 404
+
+        # Owner still has access
+        owner_response = other_client.get(f"/api/v1/clauses/{file_id}")
+
+        assert owner_response.status_code == 200
+        assert owner_response.json()["file_id"] == file_id
+
+    finally:
+        import os
+
+        for directory in (
+            FileIngestionService.UPLOAD_DIR,
+            FileIngestionService.EXTRACTED_DIR,
+        ):
+            if directory.exists():
+                for path in directory.glob(f"{file_id}.*"):
+                    path.unlink()
+
+        clauses_path = Path("storage/clauses") / f"{file_id}.json"
         if clauses_path.exists():
             clauses_path.unlink()

@@ -1,9 +1,14 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, HttpUrl
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
+from app.core.database import get_db
+from app.models.contract import Contract
+from app.models.user import User
 from app.schemas.file_ingestion import (
     FileIngestionResponse,
     FileType,
@@ -29,6 +34,8 @@ class URLIngestionRequest(BaseModel):
 )
 async def ingest_file(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> FileIngestionResponse:
 
     try:
@@ -60,6 +67,22 @@ async def ingest_file(
 
     extension = Path(file.filename).suffix.lower()
 
+    db.add(
+        Contract(
+            id=file_id,
+            user_id=current_user.id,
+            filename=file.filename or "unnamed",
+            file_type=extension[1:],
+            size_bytes=len(content),
+            character_count=len(extracted_text),
+            extracted_text_path=str(
+                FileIngestionService.EXTRACTED_DIR
+                / f"{file_id}.txt"
+            ),
+        )
+    )
+    await db.flush()
+
     return FileIngestionResponse(
         message="File received and text extracted successfully.",
         file_id=file_id,
@@ -77,6 +100,8 @@ async def ingest_file(
 )
 async def ingest_url(
     request: URLIngestionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> FileIngestionResponse:
 
     try:
@@ -123,6 +148,22 @@ async def ingest_url(
         file_id=file_id,
         extracted_text=extracted_text,
     )
+
+    db.add(
+        Contract(
+            id=file_id,
+            user_id=current_user.id,
+            filename=filename,
+            file_type=extension[1:],
+            size_bytes=len(content),
+            character_count=len(extracted_text),
+            extracted_text_path=str(
+                FileIngestionService.EXTRACTED_DIR
+                / f"{file_id}.txt"
+            ),
+        )
+    )
+    await db.flush()
 
     return FileIngestionResponse(
         message="Contract URL received and text extracted successfully.",

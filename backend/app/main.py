@@ -7,6 +7,7 @@ from app.api.v1.file_ingestion import router as file_ingestion_router
 from app.api.v1.clauses import router as clauses_router
 from app.api.v1.qa import router as qa_router
 from app.api.v1.media_ingestion import router as media_ingestion_router
+from app.api.v1.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.database import init_db
 from app.schemas.health import HealthResponse
@@ -29,10 +30,6 @@ app = FastAPI(
 )
 
 
-# =========================
-# CORS
-# =========================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -44,10 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =========================
-# HEALTH
-# =========================
 
 @app.get(
     "/health",
@@ -61,10 +54,6 @@ async def health_check() -> HealthResponse:
         version=settings.app_version,
     )
 
-
-# =========================
-# API ROUTES
-# =========================
 
 app.include_router(
     ingestion_router,
@@ -88,5 +77,10 @@ app.include_router(
 
 app.include_router(
     media_ingestion_router,
+    prefix=settings.api_prefix,
+)
+
+app.include_router(
+    auth_router,
     prefix=settings.api_prefix,
 )

@@ -1,8 +1,13 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
+from app.core.database import get_db
+from app.models.contract import Contract
+from app.models.user import User
 from app.schemas.media_ingestion import MediaIngestionResponse, MediaType
 from app.services.audio_transcription_service import AudioTranscriptionService
 from app.services.file_ingestion_service import FileIngestionService
@@ -13,7 +18,11 @@ router = APIRouter(prefix="/ingestion", tags=["Media Ingestion"])
 
 
 @router.post("/audio", response_model=MediaIngestionResponse)
-async def ingest_audio(file: UploadFile = File(...)):
+async def ingest_audio(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
@@ -44,6 +53,22 @@ async def ingest_audio(file: UploadFile = File(...)):
             extracted_text=transcript,
         )
 
+        db.add(
+            Contract(
+                id=file_id,
+                user_id=current_user.id,
+                filename=file.filename or "unnamed",
+                file_type=extension[1:],
+                size_bytes=len(content),
+                character_count=len(transcript),
+                extracted_text_path=str(
+                    FileIngestionService.EXTRACTED_DIR
+                    / f"{file_id}.txt"
+                ),
+            )
+        )
+        await db.flush()
+
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -60,7 +85,11 @@ async def ingest_audio(file: UploadFile = File(...)):
 
 
 @router.post("/video", response_model=MediaIngestionResponse)
-async def ingest_video(file: UploadFile = File(...)):
+async def ingest_video(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
@@ -90,6 +119,22 @@ async def ingest_video(file: UploadFile = File(...)):
             file_id=file_id,
             extracted_text=transcript,
         )
+
+        db.add(
+            Contract(
+                id=file_id,
+                user_id=current_user.id,
+                filename=file.filename or "unnamed",
+                file_type=extension[1:],
+                size_bytes=len(content),
+                character_count=len(transcript),
+                extracted_text_path=str(
+                    FileIngestionService.EXTRACTED_DIR
+                    / f"{file_id}.txt"
+                ),
+            )
+        )
+        await db.flush()
 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
