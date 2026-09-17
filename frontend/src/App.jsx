@@ -40,6 +40,8 @@ import {
   RefreshCw,
   Printer,
   Download,
+  TrendingUp,
+  Clock,
 } from "lucide-react";
 
 import {
@@ -474,6 +476,12 @@ function App() {
               onNavigate={handleNavigation}
               fileId={currentFileId}
               analysis={currentAnalysis}
+              contracts={contracts}
+              contractsLoading={contractsLoading}
+              contractsError={contractsError}
+              onRefresh={refreshContracts}
+              onSelectContract={handleContractSelect}
+              currentUser={currentUser}
             />
           )}
 
@@ -2866,223 +2874,543 @@ const ContractSummary = ReportsPage;
    DASHBOARD
 ========================= */
 
-function Dashboard({ onNavigate, fileId, analysis }) {
-  const clauses = Array.isArray(analysis)
-    ? analysis
-    : analysis?.analyses ||
-      analysis?.clauses ||
-      analysis?.results ||
-      analysis?.data ||
-      [];
+function Dashboard({
+  onNavigate,
+  fileId,
+  analysis,
+  contracts = [],
+  contractsLoading = false,
+  contractsError = "",
+  onRefresh,
+  onSelectContract,
+  currentUser,
+}) {
+  const hour = new Date().getHours();
+  const timeGreeting =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const firstName = currentUser?.full_name?.trim()
+    ? currentUser.full_name.trim().split(/\s+/)[0]
+    : currentUser?.email
+    ? currentUser.email.split("@")[0]
+    : "";
 
-  const riskCounts = clauses.reduce(
-    (counts, clause) => {
-      const risk = String(
-        clause?.risk_level ||
-          clause?.risk ||
-          clause?.riskLevel ||
-          ""
-      ).toLowerCase();
+  const totalContracts = contracts.length;
 
-      if (risk === "high") counts.high += 1;
-      if (risk === "medium") counts.medium += 1;
-      if (risk === "low") counts.low += 1;
+  const highRiskContracts = contracts.filter((c) => {
+    const r = String(c?.overall_risk || "").toLowerCase();
+    return r === "high";
+  });
 
-      return counts;
-    },
-    { high: 0, medium: 0, low: 0 }
+  const medRiskContracts = contracts.filter((c) => {
+    const r = String(c?.overall_risk || "").toLowerCase();
+    return r === "medium" || r === "med";
+  });
+
+  const lowRiskContracts = contracts.filter((c) => {
+    const r = String(c?.overall_risk || "").toLowerCase();
+    return r === "low";
+  });
+
+  const scoredContracts = contracts.filter(
+    (c) => typeof c?.overall_risk_score === "number" && c.overall_risk_score >= 0
   );
 
-  const hasContract = Boolean(fileId);
-  const hasAnalysis = clauses.length > 0;
-  const totalRiskClauses =
-    riskCounts.high + riskCounts.medium + riskCounts.low;
-  const riskTotal = Math.max(totalRiskClauses, 1);
+  const avgRiskScore =
+    scoredContracts.length > 0
+      ? Math.round(
+          scoredContracts.reduce((acc, c) => acc + c.overall_risk_score, 0) /
+            scoredContracts.length
+        )
+      : null;
+
+  const analyzedContracts = contracts.filter((c) => {
+    const status = String(c?.status || "").toLowerCase();
+    return (
+      status === "analyzed" ||
+      status === "ready" ||
+      Boolean(c?.overall_risk) ||
+      (typeof c?.overall_risk_score === "number" && c.overall_risk_score > 0)
+    );
+  }).length;
+
+  const ratedCount =
+    highRiskContracts.length + medRiskContracts.length + lowRiskContracts.length;
+  const riskBase = ratedCount > 0 ? ratedCount : 1;
+  const highPct =
+    ratedCount > 0 ? Math.round((highRiskContracts.length / riskBase) * 100) : 0;
+  const medPct =
+    ratedCount > 0 ? Math.round((medRiskContracts.length / riskBase) * 100) : 0;
+  const lowPct = ratedCount > 0 ? Math.max(0, 100 - highPct - medPct) : 0;
+
+  const recentContracts = contracts.slice(0, 5);
+
+  const attentionContracts = [...highRiskContracts].sort(
+    (a, b) => (b.overall_risk_score || 0) - (a.overall_risk_score || 0)
+  );
+
+  const chronologicalContracts = [...scoredContracts].sort((a, b) => {
+    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return timeA - timeB;
+  });
+
+  const hasTrend = chronologicalContracts.length >= 2;
+  const latestScored = hasTrend
+    ? chronologicalContracts[chronologicalContracts.length - 1]
+    : null;
+  const previousScored = hasTrend
+    ? chronologicalContracts.slice(0, chronologicalContracts.length - 1)
+    : [];
+  const previousAvgScore =
+    previousScored.length > 0
+      ? Math.round(
+          previousScored.reduce((acc, c) => acc + (c.overall_risk_score || 0), 0) /
+            previousScored.length
+        )
+      : null;
+
+  const formatContractDate = (dateStr) => {
+    if (!dateStr) return "Unknown date";
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return "Unknown date";
+      return d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return "Unknown date";
+    }
+  };
+
+  const handleContractClick = (contractId) => {
+    if (onSelectContract) {
+      onSelectContract(contractId);
+    } else {
+      onNavigate("contracts");
+    }
+  };
+
+  if (contractsLoading && totalContracts === 0) {
+    return (
+      <div className="dashboard">
+        <section className="dashboard-loading-state">
+          <Loader2 size={36} className="spin" />
+          <h3>Synchronizing Workspace Dashboard</h3>
+          <p>Connecting to your Term Shield library to compile intelligence and risk posture...</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (contractsError && totalContracts === 0) {
+    return (
+      <div className="dashboard">
+        <section className="dashboard-error-state">
+          <AlertCircle size={36} />
+          <h3>Unable to Load Contract Library</h3>
+          <p>{contractsError}</p>
+          <div className="dashboard-error-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => onRefresh && onRefresh()}
+            >
+              <RefreshCw size={15} />
+              <span>Retry Connection</span>
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onNavigate("upload")}
+            >
+              <Upload size={15} />
+              <span>Upload Contract</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (!contractsLoading && !contractsError && totalContracts === 0) {
+    return (
+      <div className="dashboard">
+        <section className="welcome-section">
+          <div className="welcome-copy">
+            <span className="eyebrow">WORKSPACE INTELLIGENCE</span>
+            <h2>
+              Good to see you{firstName ? `, ${firstName}` : ""}.
+              <br />
+              <span>Make every contract clearer.</span>
+            </h2>
+            <p>
+              Your contract workspace at a glance. Review risk, track important terms,
+              and turn dense legal agreements into decisions you can act on.
+            </p>
+          </div>
+
+          <div className="welcome-actions">
+            <span className="workspace-status">
+              <span className="status-dot" />
+              Workspace ready (0 contracts)
+            </span>
+            <div className="dashboard-header-buttons">
+              <button
+                type="button"
+                className="secondary-button dashboard-refresh-btn"
+                onClick={() => onRefresh && onRefresh()}
+                title="Refresh workspace library"
+              >
+                <RefreshCw size={15} />
+                <span>Refresh</span>
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => onNavigate("upload")}
+              >
+                <Upload size={17} />
+                <span>Upload contract</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-empty-card">
+          <div className="empty-icon-wrap">
+            <FileText size={32} />
+          </div>
+          <h3>Your contract library is empty</h3>
+          <p>
+            Upload agreements, licenses, or terms to automatically detect clauses, evaluate risks,
+            and generate plain-language executive reports.
+          </p>
+          <div className="dashboard-empty-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => onNavigate("upload")}
+            >
+              <Upload size={16} />
+              <span>Upload Your First Contract</span>
+            </button>
+          </div>
+
+          <div className="empty-guide-grid">
+            <div className="empty-guide-step">
+              <div className="step-num">1</div>
+              <strong>Document Ingestion</strong>
+              <span>PDF, DOCX, TXT, OCR images, audio/video recordings, and web URLs.</span>
+            </div>
+            <div className="empty-guide-step">
+              <div className="step-num">2</div>
+              <strong>AI Risk Analysis</strong>
+              <span>Automated classification, risk factor detection, and obligation tagging.</span>
+            </div>
+            <div className="empty-guide-step">
+              <div className="step-num">3</div>
+              <strong>Decision Intelligence</strong>
+              <span>Executive reports, clause relationship graph, and Ask My T&amp;C Q&amp;A.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard">
+      {/* 1. DASHBOARD HEADER */}
       <section className="welcome-section">
         <div className="welcome-copy">
-          <span className="eyebrow">
-            AI CONTRACT INTELLIGENCE
-          </span>
-
+          <span className="eyebrow">AI CONTRACT INTELLIGENCE</span>
           <h2>
-            Good morning.
+            Good to see you{firstName ? `, ${firstName}` : ""}.
             <br />
-            <span>Make every contract clearer.</span>
+            <span>Workspace contract intelligence.</span>
           </h2>
-
           <p>
-            Your contract workspace at a glance. Review risk,
-            track important terms and turn dense legal language
-            into decisions you can act on.
+            Workspace-wide overview of your contracts, risk distributions, actionable flags,
+            and recent legal agreements in one clear view.
           </p>
         </div>
 
         <div className="welcome-actions">
           <span className="workspace-status">
             <span className="status-dot" />
-            Workspace ready
+            Workspace active • {totalContracts} contract{totalContracts === 1 ? "" : "s"}
           </span>
 
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => onNavigate("upload")}
-          >
-            <Upload size={17} />
-            Upload contract
-          </button>
+          <div className="dashboard-header-buttons">
+            <button
+              type="button"
+              className="secondary-button dashboard-refresh-btn"
+              onClick={() => onRefresh && onRefresh()}
+              title="Refresh workspace contracts"
+            >
+              <RefreshCw size={15} className={contractsLoading ? "spin" : ""} />
+              <span>Refresh</span>
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => onNavigate("upload")}
+            >
+              <Upload size={17} />
+              <span>Upload contract</span>
+            </button>
+          </div>
         </div>
       </section>
 
-      <section className="stats-grid">
+      {/* 2. WORKSPACE METRICS */}
+      <section className="stats-grid workspace-stats-grid">
         <StatCard
-          label="Contracts analyzed"
-          value={hasContract ? "1" : "0"}
-          detail={hasContract ? "Latest workspace activity" : "Start your library"}
+          label="Total Contracts"
+          value={totalContracts}
+          detail="In workspace library"
           icon={FileText}
         />
-
         <StatCard
-          label="Clauses detected"
-          value={clauses.length}
-          detail={hasAnalysis ? "Across latest analysis" : "Appears after analysis"}
+          label="Contracts Analyzed"
+          value={analyzedContracts}
+          detail={
+            totalContracts > 0
+              ? `${Math.round((analyzedContracts / totalContracts) * 100)}% analyzed`
+              : "Awaiting analysis"
+          }
+          icon={ShieldCheck}
+        />
+        <StatCard
+          label="Average Risk Score"
+          value={avgRiskScore !== null ? `${avgRiskScore}/100` : "N/A"}
+          detail={
+            avgRiskScore !== null
+              ? avgRiskScore >= 70
+                ? "High risk baseline"
+                : avgRiskScore >= 40
+                ? "Moderate risk baseline"
+                : "Low risk baseline"
+              : "No scored contracts"
+          }
+          icon={BarChart3}
+        />
+        <StatCard
+          label="High-Risk Contracts"
+          value={highRiskContracts.length}
+          detail={highRiskContracts.length ? "Requires immediate review" : "None detected"}
           icon={ShieldAlert}
+          danger={highRiskContracts.length > 0}
         />
-
         <StatCard
-          label="High-risk clauses"
-          value={riskCounts.high}
-          detail={riskCounts.high ? "Needs your attention" : "No high-risk items yet"}
+          label="Medium-Risk"
+          value={medRiskContracts.length}
+          detail="Moderate review priority"
           icon={ListChecks}
-          danger={riskCounts.high > 0}
         />
-
         <StatCard
-          label="Low-risk clauses"
-          value={riskCounts.low}
-          detail={hasAnalysis ? "Lower concern" : "Appears after analysis"}
+          label="Low-Risk"
+          value={lowRiskContracts.length}
+          detail="Standard compliance"
           icon={CheckCircle2}
         />
       </section>
 
+      {/* 3. PRIMARY GRID: RISK DISTRIBUTION & REQUIRES ATTENTION */}
       <section className="dashboard-grid dashboard-primary-grid">
-        <div className="dashboard-card upload-panel dashboard-feature-card">
-          <div className="card-heading">
-            <div>
-              <span className="card-label">NEXT STEP</span>
-              <h3>Bring a contract into focus</h3>
-            </div>
-
-            <div className="card-icon feature-icon">
-              <Upload size={19} />
-            </div>
-          </div>
-
-          <p>
-            Upload a document or paste a public contract URL.
-            Term Shield will surface the clauses, obligations,
-            deadlines and financial terms worth your attention.
-          </p>
-
-          <div className="upload-benefits">
-            <div>
-              <CheckCircle2 size={15} />
-              <span>Plain-language findings</span>
-            </div>
-            <div>
-              <CheckCircle2 size={15} />
-              <span>Risk and obligation signals</span>
-            </div>
-          </div>
-
-          <button
-            className="secondary-button feature-action"
-            type="button"
-            onClick={() => onNavigate("upload")}
-          >
-            <Upload size={15} />
-            Upload contract
-          </button>
-        </div>
-
+        {/* RISK DISTRIBUTION */}
         <div className="dashboard-card risk-overview-card">
           <div className="card-heading">
             <div>
-              <span className="card-label">RISK OVERVIEW</span>
-              <h3>Review priority</h3>
+              <span className="card-label">RISK DISTRIBUTION</span>
+              <h3>Portfolio Risk Posture</h3>
             </div>
-
             <div className="card-icon purple">
               <ShieldAlert size={19} />
             </div>
           </div>
 
-          {hasAnalysis ? (
-            <>
-              <div className="risk-meter" aria-label="Risk distribution">
-                <span
-                  className="risk-meter-high"
-                  style={{ width: `${(riskCounts.high / riskTotal) * 100}%` }}
-                />
-                <span
-                  className="risk-meter-medium"
-                  style={{ width: `${(riskCounts.medium / riskTotal) * 100}%` }}
-                />
-                <span
-                  className="risk-meter-low"
-                  style={{ width: `${(riskCounts.low / riskTotal) * 100}%` }}
-                />
-              </div>
+          <div className="risk-meter" aria-label="Risk distribution">
+            <span
+              className="risk-meter-high"
+              style={{ width: `${highPct}%` }}
+              title={`High Risk: ${highRiskContracts.length} (${highPct}%)`}
+            />
+            <span
+              className="risk-meter-medium"
+              style={{ width: `${medPct}%` }}
+              title={`Medium Risk: ${medRiskContracts.length} (${medPct}%)`}
+            />
+            <span
+              className="risk-meter-low"
+              style={{ width: `${lowPct}%` }}
+              title={`Low Risk: ${lowRiskContracts.length} (${lowPct}%)`}
+            />
+          </div>
 
-              <div className="risk-summary">
-                <div>
-                  <strong>{riskCounts.high}</strong>
-                  <span>High risk</span>
-                </div>
-                <div>
-                  <strong>{riskCounts.medium}</strong>
-                  <span>Medium risk</span>
-                </div>
-                <div>
-                  <strong>{riskCounts.low}</strong>
-                  <span>Low risk</span>
-                </div>
-              </div>
-
-              <p className="risk-overview-note">
-                {riskCounts.high > 0
-                  ? "Start with high-risk clauses in your latest analysis."
-                  : "Your latest analysis has no high-risk clauses."}
-              </p>
-            </>
-          ) : (
-            <div className="risk-empty-state">
-              <div className="risk-empty-icon">
-                <BarChart3 size={18} />
-              </div>
-              <strong>No risk profile yet</strong>
-              <span>Analyze a contract to see review priorities here.</span>
+          <div className="risk-summary">
+            <div>
+              <strong>{highRiskContracts.length}</strong>
+              <span>High risk ({highPct}%)</span>
             </div>
-          )}
+            <div>
+              <strong>{medRiskContracts.length}</strong>
+              <span>Medium risk ({medPct}%)</span>
+            </div>
+            <div>
+              <strong>{lowRiskContracts.length}</strong>
+              <span>Low risk ({lowPct}%)</span>
+            </div>
+          </div>
+
+          <div className="portfolio-posture-badge">
+            <span className="posture-label">Health Assessment:</span>
+            <strong className={avgRiskScore !== null && avgRiskScore >= 70 ? "high" : avgRiskScore !== null && avgRiskScore >= 40 ? "medium" : "low"}>
+              {avgRiskScore !== null
+                ? avgRiskScore >= 70
+                  ? "Elevated Risk Portfolio"
+                  : avgRiskScore >= 40
+                  ? "Moderate Risk Portfolio"
+                  : "Safe / Low Risk Portfolio"
+                : "Awaiting Risk Evaluation"}
+            </strong>
+          </div>
 
           <button
             className="text-button risk-link"
             type="button"
-            onClick={() => onNavigate(hasAnalysis ? "analysis" : "upload")}
+            onClick={() => onNavigate("contracts")}
           >
-            {hasAnalysis ? "Open risk analysis" : "Analyze a contract"} →
+            View all contracts in library →
           </button>
+        </div>
+
+        {/* 5. REQUIRES ATTENTION SECTION */}
+        <div className="dashboard-card requires-attention-card">
+          <div className="card-heading">
+            <div>
+              <span className="card-label">HIGH-RISK OVERSIGHT</span>
+              <h3>Requires Attention ({highRiskContracts.length})</h3>
+            </div>
+            <div className="card-icon danger">
+              <ShieldAlert size={19} />
+            </div>
+          </div>
+
+          {attentionContracts.length > 0 ? (
+            <div className="attention-list">
+              {attentionContracts.slice(0, 4).map((contract) => (
+                <div
+                  key={contract.id}
+                  className="attention-contract-row"
+                  onClick={() => handleContractClick(contract.id)}
+                  title="Click to view full analysis"
+                >
+                  <div className="attention-row-main">
+                    <strong>{contract.filename}</strong>
+                    <div className="attention-row-meta">
+                      <span className="attention-date">{formatContractDate(contract.created_at)}</span>
+                      <span className="attention-type">{contract.file_type?.toUpperCase() || "DOC"}</span>
+                    </div>
+                  </div>
+
+                  <div className="attention-row-right">
+                    <span className="clause-badge high">HIGH RISK</span>
+                    <span className="attention-score-pill">
+                      Score {contract.overall_risk_score ?? 0}/100
+                    </span>
+                    <button
+                      type="button"
+                      className="attention-action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleContractClick(contract.id);
+                      }}
+                    >
+                      Inspect →
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="attention-empty-state">
+              <div className="attention-empty-icon">
+                <ShieldCheck size={24} />
+              </div>
+              <h4>All Clear: No High-Risk Contracts</h4>
+              <p>
+                Every analyzed contract in your workspace is currently within low or moderate risk parameters.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
+      {/* 6. RISK TREND / INSIGHT (if >= 2 scored contracts) */}
+      {hasTrend && (
+        <section className="dashboard-card risk-trend-card">
+          <div className="card-heading">
+            <div>
+              <span className="card-label">CHRONOLOGICAL INTELLIGENCE</span>
+              <h3>Risk Trend Across Additions</h3>
+            </div>
+            <div className="card-icon purple">
+              <TrendingUp size={19} />
+            </div>
+          </div>
+
+          <div className="trend-summary-note">
+            <Clock size={15} />
+            <span>
+              {latestScored && previousAvgScore !== null
+                ? latestScored.overall_risk_score < previousAvgScore
+                  ? `Recent addition (${latestScored.filename}) lowered portfolio risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
+                  : latestScored.overall_risk_score > previousAvgScore
+                  ? `Recent addition (${latestScored.filename}) introduced higher risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
+                  : `Recent addition (${latestScored.filename}) matched baseline risk at ${latestScored.overall_risk_score}/100.`
+                : "Tracking chronological contract evaluations."}
+            </span>
+          </div>
+
+          <div className="risk-trend-timeline">
+            {chronologicalContracts.map((c, idx) => {
+              const riskLvl = String(c.overall_risk || "unrated").toLowerCase();
+              return (
+                <div
+                  key={c.id || idx}
+                  className="risk-trend-point"
+                  onClick={() => handleContractClick(c.id)}
+                  title={`View analysis for ${c.filename}`}
+                >
+                  <div className="trend-point-header">
+                    <span className="trend-seq">#{idx + 1}</span>
+                    <span className="trend-date">{formatContractDate(c.created_at)}</span>
+                  </div>
+                  <strong className="trend-filename">{c.filename}</strong>
+                  <div className="trend-point-footer">
+                    <span className={`trend-risk-tag ${riskLvl}`}>
+                      {c.overall_risk || "UNRATED"}
+                    </span>
+                    <span className="trend-score">
+                      {c.overall_risk_score ?? "--"}/100
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* 4. RECENT CONTRACTS */}
       <section className="dashboard-card recent-panel">
         <div className="card-heading">
           <div>
             <span className="card-label">CONTRACT LIBRARY</span>
-            <h3>Recent contracts</h3>
+            <h3>Recent Contracts ({totalContracts})</h3>
           </div>
 
           <button
@@ -3090,54 +3418,75 @@ function Dashboard({ onNavigate, fileId, analysis }) {
             type="button"
             onClick={() => onNavigate("contracts")}
           >
-            View library →
+            View all contracts ({totalContracts}) →
           </button>
         </div>
 
-        {hasContract ? (
-          <div className="recent-contract-row">
-            <div className="recent-contract-icon">
-              <FileText size={20} />
-            </div>
+        {recentContracts.length > 0 ? (
+          <div className="recent-contracts-list">
+            {recentContracts.map((contract) => {
+              const riskStr = String(contract.overall_risk || "unrated").toLowerCase();
+              return (
+                <div
+                  key={contract.id}
+                  className="recent-contract-row clickable-row"
+                  onClick={() => handleContractClick(contract.id)}
+                >
+                  <div className="recent-contract-icon">
+                    <FileText size={20} />
+                  </div>
 
-            <div className="recent-contract-info">
-              <strong>Latest analyzed contract</strong>
-              <span>Contract ID: {fileId}</span>
-            </div>
+                  <div className="recent-contract-info">
+                    <strong>{contract.filename}</strong>
+                    <span>
+                      Added {formatContractDate(contract.created_at)} •{" "}
+                      {contract.file_type?.toUpperCase() || "DOCUMENT"} • ID: {contract.id}
+                    </span>
+                  </div>
 
-            <span className="contract-status">
-              <CheckCircle2 size={14} />
-              Analyzed
-            </span>
+                  <div className="recent-contract-badges">
+                    <span className={`recent-risk-badge ${riskStr}`}>
+                      {contract.overall_risk || "UNRATED"}
+                    </span>
+                    {typeof contract.overall_risk_score === "number" && (
+                      <span className="recent-score-pill">
+                        Score {contract.overall_risk_score}/100
+                      </span>
+                    )}
+                    <span className="contract-status">
+                      <CheckCircle2 size={13} />
+                      {contract.status || "Ready"}
+                    </span>
+                  </div>
 
-            <button
-              className="secondary-button recent-action"
-              type="button"
-              onClick={() => onNavigate("analysis")}
-            >
-              View analysis
-            </button>
+                  <button
+                    className="secondary-button recent-action"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleContractClick(contract.id);
+                    }}
+                  >
+                    View analysis →
+                  </button>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="empty-state">
             <div className="empty-icon">
               <FileText size={23} />
             </div>
-
             <h4>Your contract library is ready</h4>
-
-            <p>
-              Upload your first contract to see its clauses,
-              risks, obligations and AI insights here.
-            </p>
-
+            <p>Upload your first contract to see its clauses, risks, obligations and AI insights here.</p>
             <button
               className="secondary-button"
               type="button"
               onClick={() => onNavigate("upload")}
             >
               <Upload size={15} />
-              Upload your first contract
+              <span>Upload your first contract</span>
             </button>
           </div>
         )}
