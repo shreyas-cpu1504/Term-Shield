@@ -1,11 +1,15 @@
+import ipaddress
 from pathlib import Path
-from urllib.parse import urlparse
+import socket
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.core.config import get_settings
+
 
 class URLIngestionService:
-    """Download contract files or webpages from HTTP/HTTPS URLs."""
+    """Download contract files or webpages from HTTP/HTTPS URLs with SSRF protection."""
 
     ALLOWED_EXTENSIONS = {
         ".txt",
@@ -17,7 +21,63 @@ class URLIngestionService:
         ".html",
     }
 
-    MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024
+    MAX_REDIRECTS = 5
+
+    @classmethod
+    def _validate_url_ssrf(cls, url: str) -> None:
+        """Validate URL against SSRF by checking scheme, host, and resolved IP addresses."""
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+
+        if scheme not in {"http", "https"}:
+            raise ValueError("Only HTTP and HTTPS URLs are supported.")
+
+        if not parsed.netloc:
+            raise ValueError("Invalid URL.")
+
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("Invalid URL: missing host.")
+
+        # Reject credentials in URL
+        if parsed.username or parsed.password:
+            raise ValueError("URLs containing credentials are not permitted.")
+
+        # Resolve hostname to all TCP IP addresses
+        port = parsed.port or (443 if scheme == "https" else 80)
+        try:
+            addr_info = socket.getaddrinfo(
+                hostname,
+                port,
+                proto=socket.IPPROTO_TCP,
+            )
+        except socket.gaierror as exc:
+            raise ValueError(f"Failed to resolve host '{hostname}'.") from exc
+
+        if not addr_info:
+            raise ValueError(f"Could not resolve host '{hostname}'.")
+
+        # Check each resolved IP
+        for entry in addr_info:
+            sockaddr = entry[4]
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                raise ValueError(f"Invalid resolved IP address: {ip_str}")
+
+            if (
+                ip.is_loopback
+                or ip.is_private
+                or ip.is_link_local
+                or ip.is_unspecified
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip_str == "169.254.169.254"
+            ):
+                raise ValueError(
+                    "Access to private, loopback, or internal network addresses is prohibited."
+                )
 
     @classmethod
     async def download(
@@ -40,9 +100,13 @@ class URLIngestionService:
         if not parsed.netloc:
             raise ValueError("Invalid URL.")
 
+        current_url = url
+        response = None
+        content = None
+
         try:
             async with httpx.AsyncClient(
-                follow_redirects=True,
+                follow_redirects=False,
                 timeout=30.0,
                 headers={
                     "User-Agent": (
@@ -53,19 +117,33 @@ class URLIngestionService:
                     )
                 },
             ) as client:
+                for redirect_idx in range(cls.MAX_REDIRECTS + 1):
+                    cls._validate_url_ssrf(current_url)
 
-                response = await client.get(url)
+                    response = await client.get(current_url)
 
-                response.raise_for_status()
+                    if response.is_redirect:
+                        if redirect_idx >= cls.MAX_REDIRECTS:
+                            raise ValueError("Too many redirects.")
 
-                content = response.content
+                        location = response.headers.get("location")
+                        if not location:
+                            raise ValueError(
+                                "Redirect response missing Location header."
+                            )
 
-        except httpx.HTTPStatusError as exc:
-            raise ValueError(
-                f"Failed to download URL: HTTP {exc.response.status_code}."
-            ) from exc
+                        current_url = urljoin(current_url, location)
+                        continue
 
-        except httpx.RequestError as exc:
+                    response.raise_for_status()
+                    content = response.content
+                    break
+
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            if isinstance(exc, httpx.HTTPStatusError):
+                raise ValueError(
+                    f"Failed to download URL: HTTP {exc.response.status_code}."
+                ) from exc
             raise ValueError(
                 f"Failed to download URL: {exc}"
             ) from exc
@@ -75,17 +153,20 @@ class URLIngestionService:
                 "The URL returned an empty response."
             )
 
-        if len(content) > cls.MAX_DOWNLOAD_SIZE:
+        settings = get_settings()
+        max_bytes = settings.max_upload_size_mb * 1024 * 1024
+
+        if len(content) > max_bytes:
             raise ValueError(
-                "Downloaded content exceeds the 20 MB limit."
+                f"Downloaded content exceeds the {settings.max_upload_size_mb} MB limit."
             )
 
         extension = cls._detect_extension(
-            url=str(response.url),
+            url=str(response.url if response else current_url),
             content_type=response.headers.get(
                 "content-type",
                 "",
-            ),
+            ) if response else "",
         )
 
         if not extension:
@@ -94,7 +175,7 @@ class URLIngestionService:
             )
 
         filename = cls._build_filename(
-            url=str(response.url),
+            url=str(response.url if response else current_url),
             extension=extension,
         )
 

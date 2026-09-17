@@ -67,11 +67,13 @@ async def ingest_file(
 
     extension = Path(file.filename).suffix.lower()
 
+    safe_filename = FileIngestionService.sanitize_filename(file.filename)
+
     db.add(
         Contract(
             id=file_id,
             user_id=current_user.id,
-            filename=file.filename or "unnamed",
+            filename=safe_filename,
             file_type=extension[1:],
             size_bytes=len(content),
             character_count=len(extracted_text),
@@ -87,7 +89,7 @@ async def ingest_file(
         message="File received and text extracted successfully.",
         file_id=file_id,
         file_type=FileType(extension[1:]),
-        filename=file.filename,
+        filename=safe_filename,
         size_bytes=len(content),
         extracted_text=extracted_text,
         character_count=len(extracted_text),
@@ -102,8 +104,7 @@ async def ingest_url(
     request: URLIngestionRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> FileIngestionResponse:
-
+):
     try:
         filename, content = await URLIngestionService.download(
             str(request.url)
@@ -140,7 +141,10 @@ async def ingest_url(
     stored_path = (
         FileIngestionService.UPLOAD_DIR
         / stored_filename
-    )
+    ).resolve()
+
+    if not stored_path.is_relative_to(FileIngestionService.UPLOAD_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid storage path.")
 
     stored_path.write_bytes(content)
 
@@ -149,11 +153,13 @@ async def ingest_url(
         extracted_text=extracted_text,
     )
 
+    safe_filename = FileIngestionService.sanitize_filename(filename)
+
     db.add(
         Contract(
             id=file_id,
             user_id=current_user.id,
-            filename=filename,
+            filename=safe_filename,
             file_type=extension[1:],
             size_bytes=len(content),
             character_count=len(extracted_text),
@@ -169,7 +175,7 @@ async def ingest_url(
         message="Contract URL received and text extracted successfully.",
         file_id=file_id,
         file_type=FileType(extension[1:]),
-        filename=filename,
+        filename=safe_filename,
         size_bytes=len(content),
         extracted_text=extracted_text,
         character_count=len(extracted_text),

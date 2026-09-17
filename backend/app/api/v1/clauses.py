@@ -303,19 +303,30 @@ async def _load_clauses(file_id: str, db: AsyncSession | None = None) -> list[Cl
             return clauses
 
     # 2. Fallback to extracted text / ClauseStorageService
+    try:
+        clean_file_id = FileIngestionService.validate_file_id(file_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="Extracted document not found.",
+        )
+
     extracted_path = (
         FileIngestionService.EXTRACTED_DIR
-        / f"{file_id}.txt"
-    )
+        / f"{clean_file_id}.txt"
+    ).resolve()
 
-    if not extracted_path.exists():
+    if (
+        not extracted_path.is_relative_to(FileIngestionService.EXTRACTED_DIR.resolve())
+        or not extracted_path.exists()
+    ):
         raise HTTPException(
             status_code=404,
             detail="Extracted document not found.",
         )
 
     clauses = ClauseStorageService.load_clauses(
-        file_id
+        clean_file_id
     )
 
     if not clauses:

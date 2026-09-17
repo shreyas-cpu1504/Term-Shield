@@ -61,11 +61,13 @@ async def ingest_audio(
             extracted_text=transcript,
         )
 
+        safe_filename = FileIngestionService.sanitize_filename(file.filename)
+
         db.add(
             Contract(
                 id=file_id,
                 user_id=current_user.id,
-                filename=file.filename or "unnamed",
+                filename=safe_filename,
                 file_type=extension[1:],
                 size_bytes=len(content),
                 character_count=len(transcript),
@@ -85,7 +87,7 @@ async def ingest_audio(
         media_id=media_id,
         file_id=file_id,
         media_type=MediaType.AUDIO,
-        filename=file.filename,
+        filename=safe_filename,
         size_bytes=len(content),
         transcript=transcript,
         character_count=len(transcript),
@@ -115,6 +117,13 @@ async def ingest_video(
         if not content:
             raise ValueError("Uploaded video file is empty.")
 
+        settings = get_settings()
+        max_file_size = settings.max_upload_size_mb * 1024 * 1024
+        if len(content) > max_file_size:
+            raise ValueError(
+                f"File size exceeds the {settings.max_upload_size_mb} MB limit."
+            )
+
         media_id = str(uuid4())
         file_id = str(uuid4())
 
@@ -128,11 +137,13 @@ async def ingest_video(
             extracted_text=transcript,
         )
 
+        safe_filename = FileIngestionService.sanitize_filename(file.filename)
+
         db.add(
             Contract(
                 id=file_id,
                 user_id=current_user.id,
-                filename=file.filename or "unnamed",
+                filename=safe_filename,
                 file_type=extension[1:],
                 size_bytes=len(content),
                 character_count=len(transcript),
@@ -152,7 +163,7 @@ async def ingest_video(
         media_id=media_id,
         file_id=file_id,
         media_type=MediaType.VIDEO,
-        filename=file.filename,
+        filename=safe_filename,
         size_bytes=len(content),
         transcript=transcript,
         character_count=len(transcript),

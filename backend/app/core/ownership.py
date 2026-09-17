@@ -8,16 +8,31 @@ from app.models.contract import Contract
 from app.models.user import User
 
 
+def _validate_file_id(file_id: str) -> str:
+    if not file_id or "/" in file_id or "\\" in file_id or ".." in file_id:
+        return ""
+    return file_id
+
+
 def _extracted_path(file_id: str) -> Path:
-    return Path("storage") / "extracted" / f"{file_id}.txt"
+    safe_id = _validate_file_id(file_id)
+    if not safe_id:
+        return Path("storage") / "extracted" / "invalid_nonexistent.txt"
+    return Path("storage") / "extracted" / f"{safe_id}.txt"
 
 
 def _clauses_path(file_id: str) -> Path:
-    return Path("storage") / "clauses" / f"{file_id}.json"
+    safe_id = _validate_file_id(file_id)
+    if not safe_id:
+        return Path("storage") / "clauses" / "invalid_nonexistent.json"
+    return Path("storage") / "clauses" / f"{safe_id}.json"
 
 
 def _uploaded_contract_glob(file_id: str) -> list[Path]:
-    return list((Path("storage") / "uploads").glob(f"{file_id}.*"))
+    safe_id = _validate_file_id(file_id)
+    if not safe_id:
+        return []
+    return list((Path("storage") / "uploads").glob(f"{safe_id}.*"))
 
 
 def contract_exists(file_id: str) -> bool:
