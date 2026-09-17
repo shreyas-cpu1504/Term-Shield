@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -25,3 +27,14 @@ class QuestionResponse(BaseModel):
         default_factory=list
     )
     confidence: float = 0.0
+
+
+class QAHistoryItemResponse(BaseModel):
+    id: str
+    contract_id: str
+    question: str
+    answer: str
+    confidence: float = 0.0
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

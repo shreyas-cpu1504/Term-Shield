@@ -1,11 +1,17 @@
-from fastapi import APIRouter, Depends
+import json
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.core.ownership import require_owned_contract
+from app.models.qa_history import QAHistory
 from app.models.user import User
 from app.schemas.qa import (
+    QAHistoryItemResponse,
     QuestionRequest,
     QuestionResponse,
 )
@@ -31,12 +37,65 @@ async def ask_question(
     db: AsyncSession = Depends(get_db),
 ) -> QuestionResponse:
 
-    await require_owned_contract(db, current_user, file_id)
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Extracted document not found.",
+        )
 
     clauses = _load_clauses(file_id)
 
-    return QAService.answer(
+    response = QAService.answer(
         file_id=file_id,
         question=request.question,
         clauses=clauses,
     )
+
+    qa_record = QAHistory(
+        id=str(uuid.uuid4()),
+        contract_id=file_id,
+        user_id=current_user.id,
+        question=request.question,
+        answer=response.answer,
+        evidence_json=(
+            json.dumps([e.model_dump() for e in response.evidence])
+            if response.evidence
+            else None
+        ),
+        confidence=response.confidence,
+    )
+    db.add(qa_record)
+    await db.commit()
+
+    return response
+
+
+@router.get(
+    "/{file_id}/history",
+    response_model=list[QAHistoryItemResponse],
+)
+async def get_qa_history(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[QAHistoryItemResponse]:
+
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Extracted document not found.",
+        )
+
+    result = await db.execute(
+        select(QAHistory)
+        .where(
+            QAHistory.contract_id == file_id,
+            QAHistory.user_id == current_user.id,
+        )
+        .order_by(QAHistory.created_at.asc())
+    )
+
+    records = result.scalars().all()
+    return list(records)

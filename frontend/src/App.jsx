@@ -55,7 +55,7 @@ import {
   getContractSummary,
   getContractRelationships,
 } from "./api/analysisApi";
-import { askContractQuestion } from "./api/qaApi";
+import { askContractQuestion, getQAHistory } from "./api/qaApi";
 import { getCurrentUser } from "./api/authApi";
 import { getContracts, deleteContract } from "./api/contractsApi";
 import Login from "./components/Login";
@@ -2671,7 +2671,10 @@ const ContractSummary = ReportsPage;
               const [draft, setDraft] = useState("");
               const [messages, setMessages] = useState([]);
               const [isAsking, setIsAsking] = useState(false);
+              const [historyLoading, setHistoryLoading] = useState(false);
+              const [historyError, setHistoryError] = useState("");
               const [qaError, setQaError] = useState("");
+              const messagesEndRef = useRef(null);
 
               const hasContract = Boolean(fileId);
               const contractName =
@@ -2686,13 +2689,73 @@ const ContractSummary = ReportsPage;
                 "What should I review before signing?",
               ];
 
+              const fetchHistory = async (targetFileId) => {
+                if (!targetFileId) {
+                  setMessages([]);
+                  setHistoryLoading(false);
+                  setHistoryError("");
+                  return;
+                }
+
+                setMessages([]);
+                setHistoryLoading(true);
+                setHistoryError("");
+                setQaError("");
+
+                try {
+                  const data = await getQAHistory(targetFileId);
+                  const formatted = [];
+                  if (Array.isArray(data)) {
+                    data.forEach((record) => {
+                      if (record.question) {
+                        formatted.push({
+                          id: `${record.id}-user`,
+                          role: "user",
+                          text: record.question,
+                          createdAt: record.created_at,
+                        });
+                      }
+                      if (record.answer) {
+                        formatted.push({
+                          id: `${record.id}-assistant`,
+                          role: "assistant",
+                          text: record.answer,
+                          createdAt: record.created_at,
+                        });
+                      }
+                    });
+                  }
+                  setMessages(formatted);
+                } catch (err) {
+                  const message =
+                    err?.response?.data?.detail ||
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    "Failed to load conversation history.";
+                  setHistoryError(message);
+                } finally {
+                  setHistoryLoading(false);
+                }
+              };
+
+              useEffect(() => {
+                fetchHistory(fileId);
+              }, [fileId]);
+
+              useEffect(() => {
+                if (messages.length > 0 || isAsking) {
+                  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                }
+              }, [messages, isAsking]);
+
               const handleSend = async () => {
                 const question = draft.trim();
-                if (!question || !hasContract || isAsking) return;
+                if (!question || !hasContract || isAsking || historyLoading) return;
 
+                const tempId = Date.now();
                 setMessages((currentMessages) => [
                   ...currentMessages,
-                  { id: `${Date.now()}-user`, role: "user", text: question },
+                  { id: `${tempId}-user`, role: "user", text: question },
                 ]);
                 setDraft("");
                 setQaError("");
@@ -2766,7 +2829,13 @@ const ContractSummary = ReportsPage;
                       </div>
                       <div>
                         <strong>Term Shield assistant</strong>
-                        <span>{hasContract ? "Contract context ready" : "Waiting for a contract"}</span>
+                        <span>
+                          {hasContract
+                            ? historyLoading
+                              ? "Loading conversation history..."
+                              : "Contract context ready"
+                            : "Waiting for a contract"}
+                        </span>
                       </div>
                       <span className="ask-chat-status">
                         <span />
@@ -2788,6 +2857,30 @@ const ContractSummary = ReportsPage;
                           </div>
                         </div>
                       </div>
+
+                      {historyLoading && (
+                        <div className="ask-history-loading">
+                          <Loader2 size={16} className="spin" />
+                          <span>Loading saved conversation history...</span>
+                        </div>
+                      )}
+
+                      {historyError && !historyLoading && (
+                        <div className="ask-history-error-banner" role="alert">
+                          <div className="ask-history-error-text">
+                            <AlertCircle size={15} />
+                            <span>{historyError}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="ask-history-retry-btn"
+                            onClick={() => fetchHistory(fileId)}
+                          >
+                            <RefreshCw size={13} />
+                            <span>Retry</span>
+                          </button>
+                        </div>
+                      )}
 
                       {messages.map((message) => (
                         <div
@@ -2822,6 +2915,7 @@ const ContractSummary = ReportsPage;
                           </div>
                         </div>
                       )}
+                      <div ref={messagesEndRef} />
                     </div>
 
                     <div className="ask-chat-composer">
@@ -2832,7 +2926,7 @@ const ContractSummary = ReportsPage;
                             <button
                               type="button"
                               key={question}
-                              disabled={!hasContract || isAsking}
+                              disabled={!hasContract || isAsking || historyLoading}
                               onClick={() => setDraft(question)}
                             >
                               {question}
@@ -2846,7 +2940,7 @@ const ContractSummary = ReportsPage;
                           value={draft}
                           onChange={(event) => setDraft(event.target.value)}
                           onKeyDown={handleInputKeyDown}
-                          disabled={!hasContract || isAsking}
+                          disabled={!hasContract || isAsking || historyLoading}
                           placeholder={
                             hasContract
                               ? "Ask about this contract..."
@@ -2858,7 +2952,7 @@ const ContractSummary = ReportsPage;
                         <button
                           className="ask-send-button"
                           type="button"
-                          disabled={!hasContract || !draft.trim() || isAsking}
+                          disabled={!hasContract || !draft.trim() || isAsking || historyLoading}
                           onClick={handleSend}
                           aria-label="Send question"
                         >
@@ -2874,13 +2968,14 @@ const ContractSummary = ReportsPage;
                       )}
 
                       <p className="ask-composer-note">
-                        Answers are grounded in the selected contract.
+                        Answers are grounded in the selected contract and persisted to your library.
                       </p>
                     </div>
                   </section>
                 </div>
               );
             }
+
 
 /* =========================
    DASHBOARD

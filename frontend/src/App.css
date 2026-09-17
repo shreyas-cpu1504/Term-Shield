@@ -4782,6 +4782,68 @@ button {
   margin-top: 1px;
 }
 
+.ask-history-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 16px;
+  margin: 6px 0;
+  border-radius: 8px;
+  background: rgba(246, 244, 239, 0.7);
+  border: 1px dashed #dedbd4;
+  color: #726f68;
+  font-size: 11px;
+}
+
+.ask-history-loading svg {
+  color: #bfa15f;
+}
+
+.ask-history-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid #f0d5d2;
+  border-radius: 8px;
+  background: #fff8f7;
+  color: #a83d35;
+  font-size: 11px;
+}
+
+.ask-history-error-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ask-history-error-text svg {
+  flex: 0 0 auto;
+}
+
+.ask-history-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2b6b2;
+  background: #ffffff;
+  color: #a83d35;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ask-history-retry-btn:hover {
+  background: #fcf1f0;
+  border-color: #d19590;
+}
+
 @media (max-width: 700px) {
   .ask-page-header {
     align-items: flex-start;
