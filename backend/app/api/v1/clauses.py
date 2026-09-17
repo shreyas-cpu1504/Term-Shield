@@ -1,4 +1,6 @@
 from dataclasses import asdict
+import json
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -7,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import get_current_user
 from app.core.ownership import require_owned_contract
 from app.core.database import get_db
+from app.models.clause import Clause as ClauseModel
+from app.models.clause_analysis import ClauseAnalysisRecord
 from app.models.contract import Contract
 from app.models.user import User
-from app.schemas.clause import ClauseSegmentationResponse
+from app.schemas.clause import Clause as ClauseSchema, ClauseSegmentationResponse
 from app.schemas.clause_analysis import ClauseAnalysis, ClauseAnalysisResponse
 from app.schemas.clause_relationship import ClauseRelationshipResponse
 from app.schemas.contract_summary import ContractSummary
@@ -54,9 +58,122 @@ def _relationship_to_schema(relationship):
     }
 
 
-from dataclasses import asdict
+def _db_id_to_clause_id(db_id: str, contract_id: str) -> str:
+    prefix = f"{contract_id}_"
+    if db_id.startswith(prefix):
+        return db_id[len(prefix):]
+    return db_id
 
-from app.schemas.clause_analysis import ClauseAnalysis
+
+async def sync_clauses_to_db(
+    db: AsyncSession,
+    contract_id: str,
+    clauses: list[ClauseSchema],
+) -> list[ClauseModel]:
+    """
+    Persist or reconcile clauses for a contract in the Clause table.
+    Uses deterministic IDs: f"{contract_id}_{clause.clause_id}".
+    Prevents duplicates on repeated analysis.
+    """
+    result = await db.execute(
+        select(ClauseModel)
+        .where(ClauseModel.contract_id == contract_id)
+    )
+    existing_map = {c.id: c for c in result.scalars().all()}
+    current_ids = set()
+
+    persisted: list[ClauseModel] = []
+
+    for clause in clauses:
+        cid = f"{contract_id}_{clause.clause_id}"
+        current_ids.add(cid)
+
+        if cid in existing_map:
+            db_clause = existing_map[cid]
+            db_clause.clause_number = clause.clause_number
+            db_clause.title = clause.title
+            db_clause.text = clause.text
+            db_clause.order = clause.order
+            db_clause.character_count = clause.character_count
+            db_clause.parent_clause = clause.parent_clause
+            db_clause.clause_type = clause.clause_type
+        else:
+            db_clause = ClauseModel(
+                id=cid,
+                contract_id=contract_id,
+                clause_number=clause.clause_number,
+                title=clause.title,
+                text=clause.text,
+                order=clause.order,
+                character_count=clause.character_count,
+                parent_clause=clause.parent_clause,
+                clause_type=clause.clause_type,
+            )
+            db.add(db_clause)
+
+        persisted.append(db_clause)
+
+    for old_id, old_clause in existing_map.items():
+        if old_id not in current_ids:
+            await db.delete(old_clause)
+
+    await db.flush()
+    return persisted
+
+
+async def sync_clause_analyses_to_db(
+    db: AsyncSession,
+    contract_id: str,
+    analyses: list,
+) -> list[ClauseAnalysisRecord]:
+    """
+    Persist or reconcile clause analysis records in the ClauseAnalysisRecord table.
+    Prevents duplicate analysis records on repeated analysis.
+    """
+    result = await db.execute(
+        select(ClauseAnalysisRecord)
+        .where(ClauseAnalysisRecord.contract_id == contract_id)
+    )
+    existing_map = {a.clause_id: a for a in result.scalars().all()}
+    current_clause_ids = set()
+
+    persisted: list[ClauseAnalysisRecord] = []
+
+    for analysis in analyses:
+        db_clause_id = f"{contract_id}_{analysis.clause_id}"
+        current_clause_ids.add(db_clause_id)
+
+        analysis_dict = asdict(analysis)
+        analysis_json = json.dumps(analysis_dict, ensure_ascii=False)
+
+        if db_clause_id in existing_map:
+            rec = existing_map[db_clause_id]
+            rec.clause_type = analysis.clause_type
+            rec.risk_level = analysis.risk_level or "LOW"
+            rec.risk_score = int(analysis.risk_score or 0)
+            rec.meaning = analysis.meaning
+            rec.analysis_data = analysis_json
+        else:
+            rec = ClauseAnalysisRecord(
+                id=str(uuid.uuid4()),
+                contract_id=contract_id,
+                clause_id=db_clause_id,
+                clause_type=analysis.clause_type,
+                risk_level=analysis.risk_level or "LOW",
+                risk_score=int(analysis.risk_score or 0),
+                meaning=analysis.meaning,
+                analysis_data=analysis_json,
+            )
+            db.add(rec)
+
+        persisted.append(rec)
+
+    for old_cid, old_rec in existing_map.items():
+        if old_cid not in current_clause_ids:
+            await db.delete(old_rec)
+
+    await db.flush()
+    return persisted
 
 
 def _analysis_to_schema(analysis) -> ClauseAnalysis:
@@ -124,8 +241,7 @@ def _analysis_to_schema(analysis) -> ClauseAnalysis:
         citations=legal_references,
         legal_reference_explanations=[],
 
-        # Additional API fields not yet generated by the
-        # deterministic analysis engine
+        # Additional API fields
         notices=data.get("notice_terms", []),
         decisions=[],
         orders=[],
@@ -154,7 +270,39 @@ def _analysis_to_schema(analysis) -> ClauseAnalysis:
         confidence=1.0,
     )
 
-def _load_clauses(file_id: str):
+
+async def _load_clauses(file_id: str, db: AsyncSession | None = None) -> list[ClauseSchema]:
+    # 1. If DB session available, check Clause table first
+    if db is not None:
+        result = await db.execute(
+            select(ClauseModel)
+            .where(ClauseModel.contract_id == file_id)
+            .order_by(ClauseModel.order.asc())
+        )
+        db_clauses = result.scalars().all()
+        if db_clauses:
+            clauses = [
+                ClauseSchema(
+                    clause_id=_db_id_to_clause_id(c.id, file_id),
+                    clause_number=c.clause_number,
+                    title=c.title,
+                    text=c.text,
+                    order=c.order,
+                    character_count=c.character_count,
+                    parent_clause=c.parent_clause,
+                    clause_type=c.clause_type,
+                )
+                for c in db_clauses
+            ]
+
+            if any(clause.clause_type is None for clause in clauses):
+                clauses = ClauseClassifierService.classify_many(clauses)
+                await sync_clauses_to_db(db, file_id, clauses)
+                ClauseStorageService.save_clauses(file_id=file_id, clauses=clauses)
+
+            return clauses
+
+    # 2. Fallback to extracted text / ClauseStorageService
     extracted_path = (
         FileIngestionService.EXTRACTED_DIR
         / f"{file_id}.txt"
@@ -207,6 +355,9 @@ def _load_clauses(file_id: str):
             clauses=clauses,
         )
 
+    if db is not None:
+        await sync_clauses_to_db(db, file_id, clauses)
+
     return clauses
 
 
@@ -219,9 +370,14 @@ async def get_clause_relationships(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_owned_contract(db, current_user, file_id)
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Extracted document not found.",
+        )
 
-    clauses = _load_clauses(file_id)
+    clauses = await _load_clauses(file_id, db)
 
     relationships = ClauseRelationshipService.analyze_relationships(
         clauses
@@ -247,9 +403,16 @@ async def get_clauses(
     db: AsyncSession = Depends(get_db),
 ) -> ClauseSegmentationResponse:
 
-    await require_owned_contract(db, current_user, file_id)
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Extracted document not found.",
+        )
 
-    clauses = _load_clauses(file_id)
+    clauses = await _load_clauses(file_id, db)
+    await sync_clauses_to_db(db, file_id, clauses)
+    await db.commit()
 
     return ClauseSegmentationResponse(
         file_id=file_id,
@@ -268,13 +431,21 @@ async def get_clause_analysis(
     db: AsyncSession = Depends(get_db),
 ) -> ClauseAnalysisResponse:
 
-    await require_owned_contract(db, current_user, file_id)
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Extracted document not found.",
+        )
 
-    clauses = _load_clauses(file_id)
+    clauses = await _load_clauses(file_id, db)
+    await sync_clauses_to_db(db, file_id, clauses)
 
     analyses = ClauseAnalysisService.analyze_clauses(
         clauses
     )
+
+    await sync_clause_analyses_to_db(db, file_id, analyses)
 
     high = sum(
         1
@@ -307,11 +478,12 @@ async def get_clause_analysis(
             Contract.user_id == current_user.id,
         )
     )
-    contract = result.scalar_one_or_none()
-    if contract:
-        contract.overall_risk = overall_risk
-        contract.overall_risk_score = overall_risk_score
-        await db.flush()
+    contract_row = result.scalar_one_or_none()
+    if contract_row:
+        contract_row.overall_risk = overall_risk
+        contract_row.overall_risk_score = overall_risk_score
+
+    await db.commit()
 
     schema_analyses = [
         _analysis_to_schema(analysis)
@@ -335,9 +507,14 @@ async def get_contract_summary(
     db: AsyncSession = Depends(get_db),
 ) -> ContractSummary:
 
-    await require_owned_contract(db, current_user, file_id)
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Extracted document not found.",
+        )
 
-    clauses = _load_clauses(file_id)
+    clauses = await _load_clauses(file_id, db)
 
     analyses = ClauseAnalysisService.analyze_clauses(
         clauses
@@ -354,10 +531,11 @@ async def get_contract_summary(
             Contract.user_id == current_user.id,
         )
     )
-    contract = result.scalar_one_or_none()
-    if contract:
-        contract.overall_risk = summary.overall_risk
-        contract.overall_risk_score = summary.overall_risk_score
-        await db.flush()
+    contract_row = result.scalar_one_or_none()
+    if contract_row:
+        contract_row.overall_risk = summary.overall_risk
+        contract_row.overall_risk_score = summary.overall_risk_score
+        await db.commit()
 
     return summary
+

@@ -44,7 +44,7 @@ async def ask_question(
             detail="Extracted document not found.",
         )
 
-    clauses = _load_clauses(file_id)
+    clauses = await _load_clauses(file_id, db)
 
     response = QAService.answer(
         file_id=file_id,
