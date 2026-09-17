@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.user import User
@@ -39,6 +40,13 @@ async def ingest_audio(
 
         if not content:
             raise ValueError("Uploaded audio file is empty.")
+
+        settings = get_settings()
+        max_file_size = settings.max_upload_size_mb * 1024 * 1024
+        if len(content) > max_file_size:
+            raise ValueError(
+                f"File size exceeds the {settings.max_upload_size_mb} MB limit."
+            )
 
         media_id = str(uuid4())
         file_id = str(uuid4())

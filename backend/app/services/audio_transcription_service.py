@@ -76,8 +76,11 @@ class AudioTranscriptionService:
             raise
 
         except Exception as exc:
+            err_msg = str(exc)
+            if temporary_path and temporary_path in err_msg:
+                err_msg = err_msg.replace(temporary_path, filename)
             raise ValueError(
-                f"Failed to transcribe audio: {exc}"
+                f"Failed to transcribe audio: {err_msg}"
             ) from exc
 
         finally:
