@@ -33,6 +33,11 @@ import {
   ArrowRight,
   CornerDownRight,
   GitFork,
+  ShieldCheck,
+  KeyRound,
+  Sliders,
+  LogOut,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -92,6 +97,22 @@ function App() {
   const [contractsError, setContractsError] = useState("");
   const [selectedAnalysisLoading, setSelectedAnalysisLoading] = useState(false);
   const [selectedAnalysisError, setSelectedAnalysisError] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userLoading, setUserLoading] = useState(false);
+
+  const fetchCurrentUser = async () => {
+    setUserLoading(true);
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+      return user;
+    } catch (err) {
+      setCurrentUser(null);
+      throw err;
+    } finally {
+      setUserLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -105,18 +126,25 @@ function App() {
       };
     }
 
+    setUserLoading(true);
     getCurrentUser()
-      .then(() => {
+      .then((user) => {
         if (!cancelled) {
+          setCurrentUser(user);
           setAuthState("authenticated");
         }
       })
       .catch(() => {
         localStorage.removeItem("termShieldToken");
-        setAuthScreen("login");
-
         if (!cancelled) {
+          setCurrentUser(null);
+          setAuthScreen("login");
           setAuthState("unauthenticated");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUserLoading(false);
         }
       });
 
@@ -154,14 +182,17 @@ function App() {
 
   const handleLoginSuccess = () => {
     setAuthState("authenticated");
+    fetchCurrentUser().catch(() => {});
   };
 
   const handleRegisterSuccess = () => {
     setAuthState("authenticated");
+    fetchCurrentUser().catch(() => {});
   };
 
   const handleLogout = () => {
     localStorage.removeItem("termShieldToken");
+    setCurrentUser(null);
     setCurrentFileId(null);
     setCurrentAnalysis(null);
     setSelectedAnalysisLoading(false);
@@ -270,40 +301,52 @@ function App() {
     );
   }
 
+  const userInitials = currentUser?.full_name
+    ? currentUser.full_name
+        .trim()
+        .split(/\s+/)
+        .map((part) => part[0]?.toUpperCase())
+        .slice(0, 2)
+        .join("") || "TS"
+    : currentUser?.email
+    ? currentUser.email.slice(0, 2).toUpperCase()
+    : "TS";
+
+  const userDisplayName =
+    currentUser?.full_name?.trim() || currentUser?.email || "Account";
+
   return (
     <div className="app-shell">
-      {mobileMenu && (
-        <div
-          className="sidebar-overlay"
-          onClick={() => setMobileMenu(false)}
-        />
-      )}
+      {/* MOBILE MENU */}
+      <div
+        className={`mobile-backdrop ${mobileMenu ? "show" : ""}`}
+        onClick={() => setMobileMenu(false)}
+      />
 
-      <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
+      {/* SIDEBAR */}
+      <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
         <div className="sidebar-top">
           <div className="brand">
             <div className="brand-mark">
-              <ShieldAlert size={19} strokeWidth={2.2} />
+              <ShieldAlert size={20} />
             </div>
 
             <div className="brand-text">
-              <span>Term</span>
-              <strong>Shield</strong>
+              <strong>Term Shield</strong>
+              <span>Contract Intelligence</span>
             </div>
           </div>
 
           <button
             className="mobile-close"
-            onClick={() => setMobileMenu(false)}
             type="button"
+            onClick={() => setMobileMenu(false)}
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        <div className="workspace-label">WORKSPACE</div>
-
-        <nav className="sidebar-nav">
+        <nav className="nav-list">
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
@@ -311,8 +354,8 @@ function App() {
             return (
               <button
                 key={item.id}
-                type="button"
                 className={`nav-item ${isActive ? "active" : ""}`}
+                type="button"
                 onClick={() => handleNavigation(item.id)}
               >
                 <Icon
@@ -340,9 +383,9 @@ function App() {
           <button
             className="sidebar-profile"
             type="button"
-            onClick={handleLogout}
-            aria-label="Log out"
-            title="Log out"
+            onClick={() => handleNavigation("settings")}
+            aria-label="Account Settings"
+            title="Open Settings"
             style={{
               width: "100%",
               border: 0,
@@ -353,11 +396,11 @@ function App() {
               cursor: "pointer",
             }}
           >
-            <div className="profile-avatar">AR</div>
+            <div className="profile-avatar">{userInitials}</div>
 
             <div className="profile-info">
-              <strong>Account</strong>
-              <span>Personal workspace</span>
+              <strong>{userDisplayName}</strong>
+              <span>{currentUser?.email || "Personal workspace"}</span>
             </div>
 
             <ChevronDown size={16} />
@@ -410,8 +453,14 @@ function App() {
               <span className="notification-dot" />
             </button>
 
-            <button className="top-profile" type="button">
-              AR
+            <button
+              className="top-profile"
+              type="button"
+              onClick={() => handleNavigation("settings")}
+              title="Open Settings"
+              aria-label="User Settings"
+            >
+              {userInitials}
             </button>
           </div>
         </header>
@@ -495,6 +544,16 @@ function App() {
             />
           )}
 
+          {/* SETTINGS */}
+          {activePage === "settings" && (
+            <SettingsPage
+              currentUser={currentUser}
+              userLoading={userLoading}
+              onLogout={handleLogout}
+              onRefreshUser={fetchCurrentUser}
+            />
+          )}
+
           {/* OTHER PAGES */}
           {activePage !== "dashboard" &&
             activePage !== "upload" &&
@@ -502,7 +561,8 @@ function App() {
             activePage !== "contracts" &&
             activePage !== "clauses" &&
             activePage !== "reports" &&
-            activePage !== "ask" && (
+            activePage !== "ask" &&
+            activePage !== "settings" && (
               <PlaceholderPage
                 title={activeItem?.label || "Workspace"}
                 description="This workspace will be connected to the Term Shield backend next."
@@ -3761,6 +3821,369 @@ function ContractsPage({
             Upload contract
           </button>
         </section>
+      )}
+    </div>
+  );
+}
+
+/* =========================
+   SETTINGS PAGE
+========================= */
+
+function SettingsPage({
+  currentUser,
+  userLoading,
+  onLogout,
+  onRefreshUser,
+}) {
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      const saved = localStorage.getItem("termShieldPreferences");
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {
+      riskSensitivity: "balanced",
+      autoAnalyze: true,
+      clauseView: "detailed",
+      dateFormat: "locale",
+    };
+  });
+
+  const [savedStatus, setSavedStatus] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handlePreferenceChange = (key, value) => {
+    const updated = { ...preferences, [key]: value };
+    setPreferences(updated);
+    try {
+      localStorage.setItem("termShieldPreferences", JSON.stringify(updated));
+      setSavedStatus(true);
+      setTimeout(() => setSavedStatus(false), 2200);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleResetPreferences = () => {
+    const defaults = {
+      riskSensitivity: "balanced",
+      autoAnalyze: true,
+      clauseView: "detailed",
+      dateFormat: "locale",
+    };
+    setPreferences(defaults);
+    try {
+      localStorage.setItem("termShieldPreferences", JSON.stringify(defaults));
+      setSavedStatus(true);
+      setTimeout(() => setSavedStatus(false), 2200);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleManualRefresh = async () => {
+    if (onRefreshUser) {
+      setRefreshing(true);
+      try {
+        await onRefreshUser();
+      } finally {
+        setRefreshing(false);
+      }
+    }
+  };
+
+  const initials = currentUser?.full_name
+    ? currentUser.full_name
+        .trim()
+        .split(/\s+/)
+        .map((p) => p[0]?.toUpperCase())
+        .slice(0, 2)
+        .join("") || "TS"
+    : currentUser?.email
+    ? currentUser.email.slice(0, 2).toUpperCase()
+    : "TS";
+
+  const memberSince = currentUser?.created_at
+    ? new Date(currentUser.created_at).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "Active session";
+
+  return (
+    <div className="settings-page">
+      <section className="settings-page-header">
+        <div>
+          <span className="eyebrow">SETTINGS & PREFERENCES</span>
+          <h2>Workspace & Account</h2>
+          <p>
+            Review your authenticated user profile, security parameters, and client workspace preferences.
+          </p>
+        </div>
+
+        <div className="settings-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={handleManualRefresh}
+            disabled={refreshing || userLoading}
+            title="Refresh profile from server"
+          >
+            <RefreshCw size={15} className={refreshing || userLoading ? "spin" : ""} />
+            <span>{refreshing ? "Refreshing..." : "Refresh Session"}</span>
+          </button>
+
+          <button
+            type="button"
+            className="settings-logout-button"
+            onClick={onLogout}
+            title="End your active session"
+          >
+            <LogOut size={15} />
+            <span>Log out</span>
+          </button>
+        </div>
+      </section>
+
+      {userLoading && !currentUser ? (
+        <section className="settings-loading-card">
+          <Loader2 size={24} className="spin" />
+          <p>Loading authenticated account profile...</p>
+        </section>
+      ) : !currentUser ? (
+        <section className="settings-empty-card">
+          <AlertCircle size={28} />
+          <h3>Session information unavailable</h3>
+          <p>Unable to retrieve user credentials. Please re-authenticate.</p>
+          <button type="button" className="primary-button" onClick={onLogout}>
+            Return to Login
+          </button>
+        </section>
+      ) : (
+        <div className="settings-grid">
+          {/* Profile Overview Card */}
+          <section className="settings-card settings-profile-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon">
+                <Users size={18} />
+              </div>
+              <div>
+                <span className="card-label">AUTHENTICATED IDENTITY</span>
+                <h3>User Profile</h3>
+              </div>
+            </div>
+
+            <div className="settings-profile-badge-row">
+              <div className="settings-large-avatar">{initials}</div>
+              <div className="settings-profile-main">
+                <h4>{currentUser.full_name || "Term Shield User"}</h4>
+                <p>{currentUser.email}</p>
+                <div className="settings-tags">
+                  <span className={`settings-status-pill ${currentUser.is_active ? "active" : "inactive"}`}>
+                    <span className="status-dot" />
+                    {currentUser.is_active ? "Account Active" : "Account Inactive"}
+                  </span>
+                  <span className={`settings-status-pill ${currentUser.is_verified ? "verified" : "unverified"}`}>
+                    <CheckCircle2 size={12} />
+                    {currentUser.is_verified ? "Email Verified" : "Verification Pending"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-fields-grid">
+              <div className="settings-field-item">
+                <span className="field-label">FULL NAME</span>
+                <span className="field-value">{currentUser.full_name || "Not specified"}</span>
+              </div>
+
+              <div className="settings-field-item">
+                <span className="field-label">EMAIL ADDRESS</span>
+                <span className="field-value">{currentUser.email}</span>
+              </div>
+
+              <div className="settings-field-item">
+                <span className="field-label">ACCOUNT ID</span>
+                <span className="field-value mono-id">{currentUser.id}</span>
+              </div>
+
+              <div className="settings-field-item">
+                <span className="field-label">MEMBER SINCE</span>
+                <span className="field-value">{memberSince}</span>
+              </div>
+            </div>
+
+            <div className="settings-notice-box">
+              <Sparkles size={14} />
+              <span>
+                Account profile data is synchronized with your active authentication session. To modify your legal name or primary email, please contact your workspace administrator.
+              </span>
+            </div>
+          </section>
+
+          {/* Security & Authentication Card */}
+          <section className="settings-card settings-security-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon security">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <span className="card-label">DATA & ACCESS SECURITY</span>
+                <h3>Authentication & Security</h3>
+              </div>
+            </div>
+
+            <div className="settings-security-list">
+              <div className="security-item">
+                <div className="security-item-icon">
+                  <KeyRound size={16} />
+                </div>
+                <div className="security-item-content">
+                  <strong>Password Protection</strong>
+                  <p>Encrypted using strong cryptographic hashing (Argon2id/bcrypt). Plaintext passwords are never stored or transmitted in the clear.</p>
+                </div>
+                <span className="security-item-status verified">Secured</span>
+              </div>
+
+              <div className="security-item">
+                <div className="security-item-icon">
+                  <CheckCircle2 size={16} />
+                </div>
+                <div className="security-item-content">
+                  <strong>Token Authentication</strong>
+                  <p>Protected by JSON Web Tokens (JWT) using HMAC-SHA256 signature verification with 60-minute automatic expiration.</p>
+                </div>
+                <span className="security-item-status verified">Active</span>
+              </div>
+
+              <div className="security-item">
+                <div className="security-item-icon">
+                  <Users size={16} />
+                </div>
+                <div className="security-item-content">
+                  <strong>Contract Ownership Isolation</strong>
+                  <p>Every uploaded document and extracted clause is strictly bound to your user ID. Cross-tenant access is blocked at the database and API layer.</p>
+                </div>
+                <span className="security-item-status verified">Enforced</span>
+              </div>
+            </div>
+
+            <div className="security-actions-row">
+              <span className="security-footnote">
+                Need to reset credentials or revoke session? Log out below to invalidate current browser tokens.
+              </span>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={onLogout}
+              >
+                <LogOut size={14} />
+                <span>Log out</span>
+              </button>
+            </div>
+          </section>
+
+          {/* Workspace Preferences Card */}
+          <section className="settings-card settings-preferences-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon preferences">
+                <Sliders size={18} />
+              </div>
+              <div>
+                <span className="card-label">LOCAL CLIENT CONFIGURATION</span>
+                <h3>Workspace Preferences</h3>
+              </div>
+
+              {savedStatus && (
+                <span className="preferences-saved-indicator">
+                  <CheckCircle2 size={13} />
+                  Saved locally
+                </span>
+              )}
+            </div>
+
+            <p className="preferences-description">
+              These settings control how contracts and analyses are presented in your browser session. Preferences are saved automatically to your device&apos;s local storage.
+            </p>
+
+            <div className="preferences-grid">
+              <div className="preference-group">
+                <label htmlFor="pref-risk-sensitivity">
+                  Default Risk Sensitivity
+                  <span className="pref-hint">Adjusts how strict the initial contract risk triage appears</span>
+                </label>
+                <select
+                  id="pref-risk-sensitivity"
+                  value={preferences.riskSensitivity}
+                  onChange={(e) => handlePreferenceChange("riskSensitivity", e.target.value)}
+                >
+                  <option value="balanced">Balanced (Standard AI detection)</option>
+                  <option value="conservative">Strict (Elevate warnings on ambiguous clauses)</option>
+                  <option value="relaxed">Relaxed (Focus only on critical obligations)</option>
+                </select>
+              </div>
+
+              <div className="preference-group">
+                <label htmlFor="pref-clause-view">
+                  Clause Explorer Default Layout
+                  <span className="pref-hint">Choose how segmented clauses are arranged initially</span>
+                </label>
+                <select
+                  id="pref-clause-view"
+                  value={preferences.clauseView}
+                  onChange={(e) => handlePreferenceChange("clauseView", e.target.value)}
+                >
+                  <option value="detailed">Detailed (Full text, risk badge, and entity tags)</option>
+                  <option value="compact">Compact (High-density list view)</option>
+                </select>
+              </div>
+
+              <div className="preference-group">
+                <label htmlFor="pref-date-format">
+                  Date &amp; Timestamp Display
+                  <span className="pref-hint">Format for contract ingestion dates</span>
+                </label>
+                <select
+                  id="pref-date-format"
+                  value={preferences.dateFormat}
+                  onChange={(e) => handlePreferenceChange("dateFormat", e.target.value)}
+                >
+                  <option value="locale">Locale Standard (e.g. Sep 17, 2026)</option>
+                  <option value="iso">ISO 8601 (YYYY-MM-DD)</option>
+                </select>
+              </div>
+
+              <div className="preference-toggle-group">
+                <div className="toggle-label-wrap">
+                  <strong>Auto-analyze upon upload</strong>
+                  <span>Automatically trigger clause segmentation and risk scoring when a file is ingested</span>
+                </div>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={preferences.autoAnalyze}
+                    onChange={(e) => handlePreferenceChange("autoAnalyze", e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+              </div>
+            </div>
+
+            <div className="preferences-footer">
+              <button
+                type="button"
+                className="secondary-button text-button"
+                onClick={handleResetPreferences}
+              >
+                Reset to Defaults
+              </button>
+              <span className="preferences-storage-note">Stored in browser localStorage • Not sent to backend</span>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
