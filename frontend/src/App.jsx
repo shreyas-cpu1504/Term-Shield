@@ -38,6 +38,8 @@ import {
   Sliders,
   LogOut,
   RefreshCw,
+  Printer,
+  Download,
 } from "lucide-react";
 
 import {
@@ -528,11 +530,12 @@ function App() {
             />
           )}
 
-          {/* CONTRACT SUMMARY */}
+          {/* REPORTS */}
           {activePage === "reports" && (
-            <ContractSummary
+            <ReportsPage
               fileId={currentFileId}
               analysis={currentAnalysis}
+              onNavigate={handleNavigation}
             />
           )}
 
@@ -1874,300 +1877,771 @@ function App() {
               );
             }
 
-            /* =========================
-               CONTRACT SUMMARY
-            ========================= */
+/* =========================
+   REPORTS PAGE
+========================= */
 
-            function ContractSummary({ fileId, analysis }) {
-              const [backendSummary, setBackendSummary] = useState(null);
-              const [summaryLoading, setSummaryLoading] = useState(false);
-              const [summaryError, setSummaryError] = useState("");
+function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate }) {
+  const [summaryData, setSummaryData] = useState(null);
+  const [analysisData, setAnalysisData] = useState(null);
+  const [relationshipsData, setRelationshipsData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
+  const [relationshipsError, setRelationshipsError] = useState("");
+  const [generatedDate, setGeneratedDate] = useState(() => new Date().toLocaleString());
 
-              useEffect(() => {
-                if (!fileId) {
-                  setBackendSummary(null);
-                  setSummaryLoading(false);
-                  setSummaryError("");
-                  return undefined;
-                }
+  const fetchReportData = async (targetFileId) => {
+    if (!targetFileId) {
+      setSummaryData(null);
+      setAnalysisData(null);
+      setRelationshipsData(null);
+      setLoading(false);
+      setError("");
+      return;
+    }
 
-                let cancelled = false;
+    setLoading(true);
+    setError("");
+    setSummaryError("");
+    setRelationshipsError("");
+    setGeneratedDate(new Date().toLocaleString());
 
-                setBackendSummary(null);
-                setSummaryLoading(true);
-                setSummaryError("");
+    const requests = [
+      getContractSummary(targetFileId)
+        .then((data) => ({ status: "fulfilled", type: "summary", data }))
+        .catch((err) => ({ status: "rejected", type: "summary", err })),
 
-                getContractSummary(fileId)
-                  .then((data) => {
-                    if (!cancelled) {
-                      setBackendSummary(data);
-                    }
-                  })
-                  .catch((error) => {
-                    if (!cancelled) {
-                      setSummaryError(
-                        error?.response?.data?.detail ||
-                          error?.response?.data?.message ||
-                          error?.message ||
-                          "Unable to load contract summary."
-                      );
-                    }
-                  })
-                  .finally(() => {
-                    if (!cancelled) {
-                      setSummaryLoading(false);
-                    }
-                  });
+      (passedAnalysis?.analyses || passedAnalysis?.clauses || Array.isArray(passedAnalysis)
+        ? Promise.resolve({
+            status: "fulfilled",
+            type: "analysis",
+            data: passedAnalysis,
+          })
+        : getContractAnalysis(targetFileId)
+            .then((data) => ({ status: "fulfilled", type: "analysis", data }))
+            .catch((err) => ({ status: "rejected", type: "analysis", err }))
+      ),
 
-                return () => {
-                  cancelled = true;
-                };
-              }, [fileId]);
+      getContractRelationships(targetFileId)
+        .then((data) => ({ status: "fulfilled", type: "relationships", data }))
+        .catch((err) => ({ status: "rejected", type: "relationships", err })),
+    ];
 
-              const summaryMatchesContract = backendSummary?.file_id === fileId;
-              const currentSummary = summaryMatchesContract ? backendSummary : null;
+    try {
+      const results = await Promise.allSettled(requests);
+      let hadAnySuccess = false;
 
-              const clauses = Array.isArray(analysis)
-                ? analysis
-                : analysis?.analyses ||
-                  analysis?.clauses ||
-                  analysis?.results ||
-                  analysis?.data ||
-                  [];
+      results.forEach((res) => {
+        if (res.status === "fulfilled") {
+          const item = res.value;
+          if (item.status === "fulfilled") {
+            hadAnySuccess = true;
+            if (item.type === "summary") setSummaryData(item.data);
+            if (item.type === "analysis") setAnalysisData(item.data);
+            if (item.type === "relationships") setRelationshipsData(item.data);
+          } else {
+            if (item.type === "summary") {
+              setSummaryError(item.err?.response?.data?.detail || "Summary data could not be retrieved.");
+            }
+            if (item.type === "relationships") {
+              setRelationshipsError(item.err?.response?.data?.detail || "Relationship data could not be retrieved.");
+            }
+          }
+        }
+      });
 
-              const collectValues = (fields) => [
-                ...new Set(
-                  clauses.flatMap((clause) =>
-                    fields.flatMap((field) => {
-                      const value = clause?.[field];
-                      if (Array.isArray(value)) return value;
-                      return value ? [value] : [];
-                    })
-                  )
-                ),
-              ].filter(Boolean);
+      if (passedAnalysis && !analysisData) {
+        setAnalysisData(passedAnalysis);
+        hadAnySuccess = true;
+      }
 
-              const contractName =
-                analysis?.filename ||
-                analysis?.file_name ||
-                analysis?.contract_name ||
-                analysis?.title ||
-                (fileId ? "Analyzed contract" : "No contract selected");
+      if (!hadAnySuccess) {
+        setError("Unable to generate report. Failed to retrieve contract analysis data.");
+      }
+    } catch (err) {
+      setError(err?.response?.data?.detail || err?.message || "Failed to load report data.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-              const plainSummary =
-                currentSummary?.summary_points ||
-                currentSummary?.summary ||
-                analysis?.summary ||
-                analysis?.plain_language_summary ||
-                analysis?.summary_text ||
-                (Array.isArray(analysis?.summary_points)
-                  ? analysis.summary_points
-                  : []);
+  useEffect(() => {
+    let cancelled = false;
+    if (fileId) {
+      fetchReportData(fileId);
+    } else {
+      setSummaryData(null);
+      setAnalysisData(null);
+      setRelationshipsData(null);
+      setLoading(false);
+      setError("");
+    }
 
-              const sections = [
-                {
-                  id: "parties",
-                  title: "Key parties and entities",
-                  icon: Users,
-                  items: collectValues([
-                    "parties",
-                    "entities",
-                    "persons",
-                    "organizations",
-                    "authorities",
-                  ]),
-                },
-                {
-                  id: "obligations",
-                  title: "Important obligations",
-                  icon: ListChecks,
-                  items: [
-                    ...new Set([
-                      ...collectValues(["obligations", "duties"]),
-                      ...(Array.isArray(currentSummary?.key_obligations)
-                        ? currentSummary.key_obligations
-                        : []),
-                    ]),
-                  ],
-                },
-                {
-                  id: "rights",
-                  title: "Important rights",
-                  icon: ShieldAlert,
-                  items: [
-                    ...new Set([
-                      ...collectValues(["rights", "permissions"]),
-                      ...(Array.isArray(currentSummary?.key_rights)
-                        ? currentSummary.key_rights
-                        : []),
-                    ]),
-                  ],
-                },
-                {
-                  id: "conditions",
-                  title: "Conditions",
-                  icon: FileText,
-                  items: collectValues(["conditions", "triggers", "exceptions"]),
-                },
-                {
-                  id: "financial",
-                  title: "Financial terms",
-                  icon: DollarSign,
-                  items: [
-                    ...new Set([
-                      ...collectValues([
-                        "monetary_terms",
-                        "financial_terms",
-                        "compensation_terms",
-                        "fees",
-                        "penalties",
-                        "taxes",
-                      ]),
-                      ...(Array.isArray(currentSummary?.monetary_terms)
-                        ? currentSummary.monetary_terms
-                        : []),
-                    ]),
-                  ],
-                },
-                {
-                  id: "dates",
-                  title: "Important dates and deadlines",
-                  icon: CalendarDays,
-                  items: [
-                    ...new Set([
-                      ...collectValues(["dates", "deadlines", "durations"]),
-                      ...(Array.isArray(currentSummary?.deadlines)
-                        ? currentSummary.deadlines
-                        : []),
-                    ]),
-                  ],
-                },
-              ];
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId]);
 
-              const hasSummary = Boolean(
-                fileId || clauses.length || (plainSummary && plainSummary.length)
-              );
+  // Normalized clauses
+  const rawClauses =
+    analysisData?.analyses ||
+    analysisData?.clauses ||
+    analysisData?.results ||
+    (Array.isArray(analysisData) ? analysisData : []) ||
+    passedAnalysis?.analyses ||
+    passedAnalysis?.clauses ||
+    (Array.isArray(passedAnalysis) ? passedAnalysis : []);
+
+  const clauses = Array.isArray(rawClauses) ? rawClauses : [];
+
+  const currentSummary = summaryData?.file_id === fileId ? summaryData : null;
+
+  const contractName =
+    passedAnalysis?.filename ||
+    passedAnalysis?.file_name ||
+    passedAnalysis?.contract_name ||
+    analysisData?.filename ||
+    analysisData?.file_name ||
+    analysisData?.contract_name ||
+    (fileId ? `Contract (${fileId.slice(0, 8)}...)` : "No contract selected");
+
+  const overallRisk = String(
+    currentSummary?.overall_risk ||
+    passedAnalysis?.overall_risk ||
+    analysisData?.overall_risk ||
+    "UNRATED"
+  ).toUpperCase();
+
+  const overallRiskScore = Number(
+    currentSummary?.overall_risk_score ??
+    passedAnalysis?.overall_risk_score ??
+    analysisData?.overall_risk_score ??
+    0
+  );
+
+  const riskCounts = {
+    high: currentSummary?.risk_summary?.high ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "HIGH").length,
+    medium: currentSummary?.risk_summary?.medium ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "MEDIUM").length,
+    low: currentSummary?.risk_summary?.low ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "LOW").length,
+  };
+
+  const totalClauses =
+    currentSummary?.total_clauses ||
+    clauses.length ||
+    (riskCounts.high + riskCounts.medium + riskCounts.low);
+
+  const highRiskClauses = clauses.filter(
+    (c) => String(c?.risk_level || c?.risk).toUpperCase() === "HIGH"
+  );
+
+  const recommendationsList = clauses
+    .filter((c) => c?.recommendation && String(c.recommendation).trim().length > 0)
+    .map((c) => ({
+      clauseId: c.clause_id,
+      clauseNumber: c.clause_number,
+      title: c.title || (c.clause_number ? `Clause ${c.clause_number}` : c.clause_id),
+      riskLevel: String(c.risk_level || "LOW").toUpperCase(),
+      riskScore: c.risk_score ?? 0,
+      recommendation: c.recommendation,
+      whyItMatters: c.why_it_matters || null,
+    }));
+
+  const relationships = Array.isArray(relationshipsData?.relationships)
+    ? relationshipsData.relationships
+    : [];
+
+  const relationshipTypes = relationships.reduce((acc, rel) => {
+    const t = (rel.relationship_type || "REFERENCE").toUpperCase();
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+
+  const collectValues = (fields) => [
+    ...new Set(
+      clauses.flatMap((clause) =>
+        fields.flatMap((field) => {
+          const value = clause?.[field];
+          if (Array.isArray(value)) return value;
+          return value ? [value] : [];
+        })
+      )
+    ),
+  ].filter(Boolean);
+
+  const plainSummary =
+    currentSummary?.summary_points ||
+    currentSummary?.summary ||
+    passedAnalysis?.summary_points ||
+    passedAnalysis?.summary ||
+    [];
+
+  const executiveSections = [
+    {
+      id: "parties",
+      title: "Key Parties & Entities",
+      icon: Users,
+      items: collectValues([
+        "parties",
+        "entities",
+        "persons",
+        "organizations",
+        "authorities",
+      ]),
+    },
+    {
+      id: "obligations",
+      title: "Important Obligations",
+      icon: ListChecks,
+      items: [
+        ...new Set([
+          ...collectValues(["obligations", "duties"]),
+          ...(Array.isArray(currentSummary?.key_obligations) ? currentSummary.key_obligations : []),
+        ]),
+      ],
+    },
+    {
+      id: "rights",
+      title: "Important Rights",
+      icon: ShieldAlert,
+      items: [
+        ...new Set([
+          ...collectValues(["rights", "permissions"]),
+          ...(Array.isArray(currentSummary?.key_rights) ? currentSummary.key_rights : []),
+        ]),
+      ],
+    },
+    {
+      id: "conditions",
+      title: "Conditions & Exceptions",
+      icon: FileText,
+      items: collectValues(["conditions", "triggers", "exceptions"]),
+    },
+    {
+      id: "financial",
+      title: "Financial Terms & Penalties",
+      icon: DollarSign,
+      items: [
+        ...new Set([
+          ...collectValues([
+            "monetary_terms",
+            "financial_terms",
+            "compensation_terms",
+            "fees",
+            "penalties",
+            "taxes",
+          ]),
+          ...(Array.isArray(currentSummary?.monetary_terms) ? currentSummary.monetary_terms : []),
+        ]),
+      ],
+    },
+    {
+      id: "dates",
+      title: "Deadlines & Critical Dates",
+      icon: CalendarDays,
+      items: [
+        ...new Set([
+          ...collectValues(["dates", "deadlines", "durations"]),
+          ...(Array.isArray(currentSummary?.deadlines) ? currentSummary.deadlines : []),
+        ]),
+      ],
+    },
+  ];
+
+  const handleExportJson = () => {
+    const reportPayload = {
+      term_shield_version: "0.1.0",
+      generated_at: new Date().toISOString(),
+      contract_metadata: {
+        id: fileId,
+        filename: contractName,
+        generated_date: generatedDate,
+        total_clauses: totalClauses,
+      },
+      risk_overview: {
+        overall_risk: overallRisk,
+        overall_risk_score: overallRiskScore,
+        high_risk_clause_count: riskCounts.high,
+        medium_risk_clause_count: riskCounts.medium,
+        low_risk_clause_count: riskCounts.low,
+        total_clause_count: totalClauses,
+      },
+      executive_summary: {
+        summary_points: Array.isArray(plainSummary) ? plainSummary : [plainSummary].filter(Boolean),
+        parties: executiveSections.find((s) => s.id === "parties")?.items || [],
+        obligations: executiveSections.find((s) => s.id === "obligations")?.items || [],
+        rights: executiveSections.find((s) => s.id === "rights")?.items || [],
+        conditions: executiveSections.find((s) => s.id === "conditions")?.items || [],
+        financial_terms: executiveSections.find((s) => s.id === "financial")?.items || [],
+        deadlines: executiveSections.find((s) => s.id === "dates")?.items || [],
+      },
+      high_risk_clauses: highRiskClauses.map((c) => ({
+        clause_id: c.clause_id,
+        clause_number: c.clause_number || null,
+        title: c.title || null,
+        risk_level: c.risk_level,
+        risk_score: c.risk_score,
+        why_it_matters: c.why_it_matters || null,
+        recommendation: c.recommendation || null,
+        risk_factors: c.risk_factors || [],
+      })),
+      recommendations: recommendationsList.map((r) => ({
+        clause_id: r.clauseId,
+        clause_title: r.clauseTitle,
+        risk_level: r.riskLevel,
+        risk_score: r.riskScore,
+        recommendation: r.recommendation,
+        why_it_matters: r.whyItMatters,
+      })),
+      relationship_summary: {
+        total_relationships: relationships.length,
+        relationship_types: relationshipTypes,
+        relationships: relationships.map((r) => ({
+          source_clause_id: r.source_clause_id,
+          target_clause_id: r.target_clause_id,
+          relationship_type: r.relationship_type,
+          confidence: r.confidence,
+          evidence: r.evidence,
+        })),
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(reportPayload, null, 2)], {
+      type: "application/json;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    const sanitizedName = contractName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    downloadLink.href = url;
+    downloadLink.download = `TermShield_Report_${sanitizedName}_${(fileId || "").slice(0, 8)}.json`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrintPdf = () => {
+    window.print();
+  };
+
+  if (!fileId) {
+    return (
+      <div className="reports-page">
+        <section className="reports-empty-state">
+          <div className="reports-empty-icon">
+            <FileText size={28} />
+          </div>
+          <span className="card-label">NO CONTRACT SELECTED</span>
+          <h3>Select a contract to generate report</h3>
+          <p>
+            Choose an analyzed contract from your library or upload a new agreement to generate an executive report with risk scoring, recommendations, and relationship summaries.
+          </p>
+          <div className="reports-empty-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => onNavigate && onNavigate("contracts")}
+            >
+              <FileText size={16} />
+              <span>Browse Contract Library</span>
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onNavigate && onNavigate("upload")}
+            >
+              <Upload size={16} />
+              <span>Upload New Contract</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="reports-page">
+        <section className="reports-loading-state">
+          <Loader2 size={32} className="spin" />
+          <h3>Compiling Contract Report</h3>
+          <p>Analyzing risk distributions, executive points, and clause relationships for {contractName}...</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="reports-page">
+        <section className="reports-error-state">
+          <AlertCircle size={32} />
+          <h3>Report Generation Failed</h3>
+          <p>{error}</p>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => fetchReportData(fileId)}
+          >
+            <RefreshCw size={15} />
+            <span>Retry Generating Report</span>
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  const highPct = totalClauses > 0 ? Math.round((riskCounts.high / totalClauses) * 100) : 0;
+  const medPct = totalClauses > 0 ? Math.round((riskCounts.medium / totalClauses) * 100) : 0;
+  const lowPct = totalClauses > 0 ? Math.max(0, 100 - highPct - medPct) : 0;
+
+  return (
+    <div className="reports-page">
+      {/* 1. REPORT HEADER */}
+      <section className="report-page-header">
+        <div className="report-header-info">
+          <div className="report-eyebrow-row">
+            <span className="eyebrow">TERM SHIELD AUDIT REPORT</span>
+            <span className={`report-risk-badge ${overallRisk.toLowerCase()}`}>
+              {overallRisk} RISK • SCORE {overallRiskScore}/100
+            </span>
+          </div>
+
+          <h1 className="report-title">{contractName}</h1>
+
+          <div className="report-meta-pills">
+            <span className="meta-pill">
+              <strong>Contract ID:</strong> {fileId}
+            </span>
+            <span className="meta-pill">
+              <strong>Generated:</strong> {generatedDate}
+            </span>
+            <span className="meta-pill">
+              <strong>Total Clauses:</strong> {totalClauses}
+            </span>
+          </div>
+        </div>
+
+        <div className="report-header-actions">
+          <button
+            type="button"
+            className="secondary-button report-action-btn"
+            onClick={handleExportJson}
+            title="Download report data in structured JSON format"
+          >
+            <Download size={15} />
+            <span>Export JSON</span>
+          </button>
+
+          <button
+            type="button"
+            className="primary-button report-action-btn print-btn"
+            onClick={handlePrintPdf}
+            title="Print or save as PDF via system print dialog"
+          >
+            <Printer size={15} />
+            <span>Print / Save PDF</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Partial warnings if an auxiliary API failed */}
+      {(summaryError || relationshipsError) && (
+        <div className="report-notice-banner" role="alert">
+          <AlertCircle size={16} />
+          <div>
+            {summaryError && <p>Note on Summary: {summaryError}</p>}
+            {relationshipsError && <p>Note on Relationships: {relationshipsError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* 2. RISK OVERVIEW SECTION */}
+      <section className="report-card report-overview-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon risk">
+            <ShieldAlert size={18} />
+          </div>
+          <div>
+            <span className="card-label">RISK PROFILE</span>
+            <h3>Risk Assessment &amp; Clause Distribution</h3>
+          </div>
+        </div>
+
+        <div className="risk-overview-grid">
+          <div className="risk-score-box">
+            <span className="score-num">{overallRiskScore}</span>
+            <span className="score-denom">/ 100</span>
+            <span className={`risk-tag-large ${overallRisk.toLowerCase()}`}>{overallRisk} RISK</span>
+            <span className="score-desc">Calculated based on weighted severity across all evaluated clauses.</span>
+          </div>
+
+          <div className="risk-breakdown-box">
+            <div className="risk-stat-pills">
+              <div className="risk-stat-pill high">
+                <span className="pill-count">{riskCounts.high}</span>
+                <span className="pill-label">High Risk</span>
+              </div>
+              <div className="risk-stat-pill medium">
+                <span className="pill-count">{riskCounts.medium}</span>
+                <span className="pill-label">Medium Risk</span>
+              </div>
+              <div className="risk-stat-pill low">
+                <span className="pill-count">{riskCounts.low}</span>
+                <span className="pill-label">Low Risk</span>
+              </div>
+              <div className="risk-stat-pill total">
+                <span className="pill-count">{totalClauses}</span>
+                <span className="pill-label">Total Evaluated</span>
+              </div>
+            </div>
+
+            <div className="risk-bar-container">
+              <div className="risk-bar-label-row">
+                <span>Distribution Breakdown</span>
+                <span>{highPct}% High • {medPct}% Med • {lowPct}% Low</span>
+              </div>
+              <div className="risk-bar-track">
+                <div className="risk-bar-fill high" style={{ width: `${highPct}%` }} title={`High risk: ${highPct}%`} />
+                <div className="risk-bar-fill medium" style={{ width: `${medPct}%` }} title={`Medium risk: ${medPct}%`} />
+                <div className="risk-bar-fill low" style={{ width: `${lowPct}%` }} title={`Low risk: ${lowPct}%`} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. EXECUTIVE SUMMARY SECTION */}
+      <section className="report-card report-executive-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon summary">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <span className="card-label">PLAIN-LANGUAGE SYNTHESIS</span>
+            <h3>Executive Summary</h3>
+          </div>
+        </div>
+
+        <div className="executive-summary-body">
+          {plainSummary?.length ? (
+            Array.isArray(plainSummary) ? (
+              <ul className="executive-points-list">
+                {plainSummary.map((point, index) => (
+                  <li key={index}>{point}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="executive-paragraph">{plainSummary}</p>
+            )
+          ) : (
+            <p className="summary-unavailable">A plain-language summary was not generated for this contract.</p>
+          )}
+        </div>
+
+        <div className="report-sections-grid">
+          {executiveSections.map((sec) => (
+            <ReportSectionItem key={sec.id} {...sec} />
+          ))}
+        </div>
+      </section>
+
+      {/* 4. HIGH-RISK CLAUSES SECTION */}
+      <section className="report-card report-high-risk-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon high-risk">
+            <ShieldAlert size={18} />
+          </div>
+          <div>
+            <span className="card-label">PRIORITY ATTENTION</span>
+            <h3>High-Risk Clauses ({highRiskClauses.length})</h3>
+          </div>
+        </div>
+
+        {highRiskClauses.length > 0 ? (
+          <div className="high-risk-clauses-list">
+            {highRiskClauses.map((clause, idx) => {
+              const displayTitle =
+                clause.title ||
+                (clause.clause_number ? `Clause ${clause.clause_number}` : `Clause ${idx + 1}`);
 
               return (
-                <div className="contract-summary-page">
-                  <section className="contract-summary-header">
-                    <div>
-                      <span className="eyebrow">CONTRACT SUMMARY</span>
-                      <h2>{contractName}</h2>
-                      <p>
-                        A plain-language view of the people, commitments, and terms
-                        found in the selected contract.
-                      </p>
+                <div key={clause.clause_id || idx} className="high-risk-clause-row">
+                  <div className="clause-row-header">
+                    <div className="clause-row-title-wrap">
+                      <span className="clause-badge high">HIGH RISK</span>
+                      <h4>{displayTitle}</h4>
+                      {clause.clause_type && (
+                        <span className="clause-type-tag">{clause.clause_type}</span>
+                      )}
                     </div>
+                    <span className="clause-score-pill">Score {clause.risk_score ?? 0}/100</span>
+                  </div>
 
-                    <div className="contract-summary-id">
-                      <span>CONTRACT ID</span>
-                      <strong>{fileId || "Unavailable"}</strong>
+                  {clause.why_it_matters && (
+                    <div className="clause-callout why-matters">
+                      <strong>Why It Matters:</strong>
+                      <p>{clause.why_it_matters}</p>
                     </div>
-                  </section>
+                  )}
 
-                  {!hasSummary ? (
-                    <section className="contract-summary-empty">
-                      <div className="contract-summary-empty-icon">
-                        <FileText size={25} />
-                      </div>
-                      <span className="card-label">NO CONTRACT SELECTED</span>
-                      <h3>Your contract summary will appear here.</h3>
-                      <p>
-                        Upload and analyze a contract to see its plain-language summary,
-                        parties, obligations, rights, and key terms.
-                      </p>
-                    </section>
-                  ) : (
-                    <>
-                      <section className="contract-summary-overview">
-                        <div className="section-kicker">
-                          <Sparkles size={14} />
-                          PLAIN-LANGUAGE OVERVIEW
-                        </div>
+                  {clause.recommendation && (
+                    <div className="clause-callout recommendation">
+                      <strong>Recommendation:</strong>
+                      <p>{clause.recommendation}</p>
+                    </div>
+                  )}
 
-                        {summaryLoading ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              marginTop: "15px",
-                              color: "#85827b",
-                              fontSize: "12px",
-                            }}
-                          >
-                            <Loader2 size={16} className="spin" />
-                            <span>Loading plain-language summary...</span>
-                          </div>
-                        ) : summaryError ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                              marginTop: "15px",
-                              color: "#c2410c",
-                              fontSize: "12px",
-                            }}
-                            role="alert"
-                          >
-                            <AlertCircle size={16} />
-                            <span>{summaryError}</span>
-                          </div>
-                        ) : plainSummary?.length ? (
-                          Array.isArray(plainSummary) ? (
-                            <ul>
-                              {plainSummary.map((point, index) => (
-                                <li key={index}>{point}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p>{plainSummary}</p>
-                          )
-                        ) : (
-                          <p className="summary-unavailable">
-                            A plain-language summary was not returned for this contract.
-                          </p>
-                        )}
-                      </section>
+                  {Array.isArray(clause.risk_factors) && clause.risk_factors.length > 0 && (
+                    <div className="clause-factors-row">
+                      <span className="factors-label">Risk Factors:</span>
+                      {clause.risk_factors.map((f, fIdx) => (
+                        <span key={fIdx} className="factor-tag">
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-                      <section className="contract-summary-grid">
-                        {sections.map((section) => (
-                          <SummarySection key={section.id} {...section} />
-                        ))}
-                      </section>
-                    </>
+                  {clause.text && (
+                    <div className="clause-excerpt-box">
+                      <span className="excerpt-label">Clause Excerpt:</span>
+                      <p className="excerpt-text">&ldquo;{clause.text.slice(0, 320)}{clause.text.length > 320 ? "..." : ""}&rdquo;</p>
+                    </div>
                   )}
                 </div>
               );
-            }
+            })}
+          </div>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No High-Risk Clauses Detected</h4>
+            <p>None of the segmented clauses in this contract crossed the high-risk threshold.</p>
+          </div>
+        )}
+      </section>
 
-            function SummarySection({ title, icon: Icon, items }) {
-              return (
-                <section className="summary-section">
-                  <div className="summary-section-heading">
-                    <div className="summary-section-icon">
-                      <Icon size={17} />
-                    </div>
-                    <div>
-                      <span className="card-label">CONTRACT INTELLIGENCE</span>
-                      <h3>{title}</h3>
-                    </div>
+      {/* 5. RECOMMENDATIONS SECTION */}
+      <section className="report-card report-recommendations-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon rec">
+            <ListChecks size={18} />
+          </div>
+          <div>
+            <span className="card-label">ACTIONABLE ADVICE</span>
+            <h3>Contract Recommendations ({recommendationsList.length})</h3>
+          </div>
+        </div>
+
+        {recommendationsList.length > 0 ? (
+          <div className="recommendations-list">
+            {recommendationsList.map((rec, idx) => (
+              <div key={rec.clauseId || idx} className="recommendation-item">
+                <div className="rec-item-header">
+                  <span className={`rec-risk-tag ${rec.riskLevel.toLowerCase()}`}>
+                    {rec.riskLevel}
+                  </span>
+                  <strong>{rec.clauseTitle}</strong>
+                </div>
+
+                <div className="rec-item-body">
+                  <p className="rec-text">{rec.recommendation}</p>
+                  {rec.whyItMatters && (
+                    <p className="rec-context">
+                      <span>Context:</span> {rec.whyItMatters}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No Specific Recommendations</h4>
+            <p>No actionable recommendations were generated for this agreement based on current analysis findings.</p>
+          </div>
+        )}
+      </section>
+
+      {/* 6. CLAUSE RELATIONSHIP SUMMARY */}
+      <section className="report-card report-relationships-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon rel">
+            <Network size={18} />
+          </div>
+          <div>
+            <span className="card-label">INTER-CLAUSE DYNAMICS</span>
+            <h3>Clause Relationships &amp; Dependencies ({relationships.length})</h3>
+          </div>
+        </div>
+
+        {relationships.length > 0 ? (
+          <>
+            <div className="relationship-types-row">
+              {Object.entries(relationshipTypes).map(([type, count]) => (
+                <span key={type} className="rel-type-count-pill">
+                  <strong>{type}</strong>
+                  <span className="count-num">{count}</span>
+                </span>
+              ))}
+            </div>
+
+            <div className="relationships-summary-list">
+              {relationships.map((rel, idx) => (
+                <div key={idx} className="rel-summary-row">
+                  <div className="rel-summary-flow">
+                    <span className="rel-clause-id">{rel.source_clause_id}</span>
+                    <ArrowRight size={13} className="rel-arrow" />
+                    <span className="rel-clause-id">{rel.target_clause_id || "Agreement Scope"}</span>
+                    <span className="rel-type-badge">{rel.relationship_type}</span>
+                    <span className="rel-conf-pill">{Math.round((rel.confidence ?? 1.0) * 100)}% confidence</span>
                   </div>
 
-                  {items.length ? (
-                    <ul>
-                      {items.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="summary-section-empty">No information available.</div>
+                  {rel.evidence && (
+                    <p className="rel-evidence-snippet">&ldquo;{rel.evidence}&rdquo;</p>
                   )}
-                </section>
-              );
-            }
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="report-zero-state">
+            <FileText size={24} className="muted-icon" />
+            <h4>No Cross-Clause Dependencies Found</h4>
+            <p>No cross-referencing or modifying relationships between clauses were identified in this document.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ReportSectionItem({ title, icon: Icon, items }) {
+  return (
+    <div className="report-section-item">
+      <div className="report-section-item-header">
+        <div className="report-section-mini-icon">
+          <Icon size={14} />
+        </div>
+        <h4>{title}</h4>
+      </div>
+
+      {items && items.length > 0 ? (
+        <ul className="report-section-list">
+          {items.map((it, idx) => (
+            <li key={idx}>{it}</li>
+          ))}
+        </ul>
+      ) : (
+        <span className="report-section-none">None detected</span>
+      )}
+    </div>
+  );
+}
+
+const ContractSummary = ReportsPage;
 
             /* =========================
                ASK MY T&C
