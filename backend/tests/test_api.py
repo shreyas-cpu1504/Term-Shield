@@ -234,6 +234,17 @@ def test_contract_analysis_pipeline(client):
         assert "risk_summary" in summary_data
         assert "summary_points" in summary_data
 
+        # ----------------------------------------------------------
+        # 5. Database risk persistence
+        # ----------------------------------------------------------
+        contracts_response = client.get("/api/v1/contracts")
+        assert contracts_response.status_code == 200
+        user_contracts = contracts_response.json()
+        persisted = next((c for c in user_contracts if c["id"] == file_id), None)
+        assert persisted is not None
+        assert persisted["overall_risk"] == "HIGH"
+        assert persisted["overall_risk_score"] > 0
+
     finally:
         # ----------------------------------------------------------
         # Clean up uploaded/extracted files

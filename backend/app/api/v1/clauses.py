@@ -1,11 +1,13 @@
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
 from app.core.ownership import require_owned_contract
 from app.core.database import get_db
+from app.models.contract import Contract
 from app.models.user import User
 from app.schemas.clause import ClauseSegmentationResponse
 from app.schemas.clause_analysis import ClauseAnalysis, ClauseAnalysisResponse
@@ -274,6 +276,43 @@ async def get_clause_analysis(
         clauses
     )
 
+    high = sum(
+        1
+        for analysis in analyses
+        if analysis.risk_level == "HIGH"
+    )
+    medium = sum(
+        1
+        for analysis in analyses
+        if analysis.risk_level == "MEDIUM"
+    )
+    low = sum(
+        1
+        for analysis in analyses
+        if analysis.risk_level == "LOW"
+    )
+
+    overall_risk = ContractSummaryService._calculate_overall_risk(
+        high=high,
+        medium=medium,
+        low=low,
+    )
+    overall_risk_score = ContractSummaryService._calculate_overall_risk_score(
+        analyses
+    )
+
+    result = await db.execute(
+        select(Contract).where(
+            Contract.id == file_id,
+            Contract.user_id == current_user.id,
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if contract:
+        contract.overall_risk = overall_risk
+        contract.overall_risk_score = overall_risk_score
+        await db.flush()
+
     schema_analyses = [
         _analysis_to_schema(analysis)
         for analysis in analyses
@@ -304,7 +343,21 @@ async def get_contract_summary(
         clauses
     )
 
-    return ContractSummaryService.generate(
+    summary = ContractSummaryService.generate(
         file_id=file_id,
         analyses=analyses,
     )
+
+    result = await db.execute(
+        select(Contract).where(
+            Contract.id == file_id,
+            Contract.user_id == current_user.id,
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if contract:
+        contract.overall_risk = summary.overall_risk
+        contract.overall_risk_score = summary.overall_risk_score
+        await db.flush()
+
+    return summary
