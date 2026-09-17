@@ -57,7 +57,7 @@ import {
 } from "./api/analysisApi";
 import { askContractQuestion } from "./api/qaApi";
 import { getCurrentUser } from "./api/authApi";
-import { getContracts } from "./api/contractsApi";
+import { getContracts, deleteContract } from "./api/contractsApi";
 import Login from "./components/Login";
 import Register from "./components/Register";
 
@@ -233,6 +233,17 @@ function App() {
     } finally {
       setSelectedAnalysisLoading(false);
     }
+  };
+
+  const handleDeleteContract = async (contractId) => {
+    await deleteContract(contractId);
+    if (currentFileId === contractId) {
+      setCurrentFileId(null);
+      setCurrentAnalysis(null);
+      setSelectedAnalysisLoading(false);
+      setSelectedAnalysisError("");
+    }
+    await refreshContracts();
   };
 
   if (authState === "checking") {
@@ -526,6 +537,7 @@ function App() {
               contractsLoading={contractsLoading}
               contractsError={contractsError}
               onSelectContract={handleContractSelect}
+              onDeleteContract={handleDeleteContract}
               onNavigate={handleNavigation}
             />
           )}
@@ -4445,11 +4457,49 @@ function ContractsPage({
   contractsLoading,
   contractsError,
   onSelectContract,
+  onDeleteContract,
   onNavigate,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [riskFilter, setRiskFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const [contractToDelete, setContractToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const handleOpenDelete = (e, contract) => {
+    e.stopPropagation();
+    setContractToDelete(contract);
+    setDeleteError("");
+  };
+
+  const handleCloseDelete = () => {
+    if (isDeleting) return;
+    setContractToDelete(null);
+    setDeleteError("");
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!contractToDelete || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError("");
+    try {
+      if (onDeleteContract) {
+        await onDeleteContract(contractToDelete.id);
+      }
+      setContractToDelete(null);
+    } catch (err) {
+      setDeleteError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to delete contract. Please try again."
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const contracts = persistedContracts.map((contract) => ({
     id: contract.id,
@@ -4589,11 +4639,17 @@ function ContractsPage({
       {visibleContracts.length ? (
         <section className="contracts-list" aria-label="Contracts">
           {visibleContracts.map((contract) => (
-            <button
+            <div
               className="contract-library-card"
-              type="button"
               key={contract.id}
               onClick={() => onSelectContract(contract.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  onSelectContract(contract.id);
+                }
+              }}
             >
               <div className="contract-library-icon">
                 <FileText size={22} />
@@ -4619,8 +4675,19 @@ function ContractsPage({
                 {contract.status}
               </div>
 
-              <ChevronDown className="contract-library-arrow" size={18} />
-            </button>
+              <div className="contract-card-actions">
+                <button
+                  type="button"
+                  className="contract-delete-btn"
+                  title={`Delete ${contract.name}`}
+                  aria-label={`Delete ${contract.name}`}
+                  onClick={(e) => handleOpenDelete(e, contract)}
+                >
+                  <Trash2 size={16} />
+                </button>
+                <ChevronDown className="contract-library-arrow" size={18} />
+              </div>
+            </div>
           ))}
         </section>
       ) : (
@@ -4644,6 +4711,76 @@ function ContractsPage({
             Upload contract
           </button>
         </section>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {contractToDelete && (
+        <div className="delete-modal-backdrop" onClick={handleCloseDelete}>
+          <div
+            className="delete-modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+          >
+            <div className="delete-modal-header">
+              <div className="delete-modal-icon">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <span className="card-label">CONFIRM DELETION</span>
+                <h3 id="delete-dialog-title">Delete Contract</h3>
+              </div>
+            </div>
+
+            <div className="delete-modal-body">
+              <p>
+                Are you sure you want to delete <strong>{contractToDelete.name}</strong>?
+              </p>
+              <p className="delete-warning-text">
+                This will permanently remove this contract along with its extracted clauses,
+                risk assessments, and Q&amp;A history from your workspace.
+                This action cannot be undone.
+              </p>
+
+              {deleteError && (
+                <div className="delete-error-alert" role="alert">
+                  <AlertCircle size={16} />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="delete-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={handleCloseDelete}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button delete-confirm-btn"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 size={15} className="spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    <span>Delete Contract</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

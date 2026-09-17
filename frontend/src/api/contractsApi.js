@@ -7,3 +7,11 @@ export async function getContracts() {
 
   return response.data;
 }
+
+export async function deleteContract(contractId) {
+  const response = await apiClient.delete(
+    `/contracts/${contractId}`
+  );
+
+  return response.data;
+}
