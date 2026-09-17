@@ -87,6 +87,15 @@ async def delete_contract(
         except OSError:
             pass
 
+    # Clean up uploaded raw file if present
+    if contract.file_type:
+        upload_path = Path("storage/uploads") / f"{contract.id}.{contract.file_type}"
+        if upload_path.is_file():
+            try:
+                upload_path.unlink()
+            except OSError:
+                pass
+
     return {
         "message": "Contract deleted successfully",
         "id": contract_id,

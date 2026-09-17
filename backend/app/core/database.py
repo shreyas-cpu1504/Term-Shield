@@ -74,3 +74,9 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def close_db() -> None:
+    """Dispose of the database engine and connection pool cleanly."""
+    await engine.dispose()
+
