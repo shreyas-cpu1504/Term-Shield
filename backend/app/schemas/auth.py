@@ -31,5 +31,9 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+class OAuthExchangeRequest(BaseModel):
+    code: str = Field(..., min_length=1)
+
+
 class MessageResponse(BaseModel):
     message: str

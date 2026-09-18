@@ -1,0 +1,508 @@
+/* Premium SaaS Login Page Styles - Faithfully Recreated from Reference Image */
+.ts-login-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 36px;
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.07) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+    linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #0f172a;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  position: relative;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Background Soft Architectural Wave Accents */
+.ts-login-bg-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.ts-login-wave-ribbon {
+  position: absolute;
+  top: -20%;
+  left: -10%;
+  width: 80vw;
+  height: 80vw;
+  max-width: 900px;
+  border-radius: 45%;
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.4) 0%, rgba(243, 232, 255, 0.3) 60%, transparent 80%);
+  filter: blur(60px);
+  transform: rotate(-25deg);
+}
+
+.ts-login-wave-accent-right {
+  position: absolute;
+  bottom: -20%;
+  right: -10%;
+  width: 60vw;
+  height: 60vw;
+  max-width: 750px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.45) 0%, rgba(237, 233, 254, 0.3) 50%, transparent 75%);
+  filter: blur(70px);
+}
+
+/* Top Navigation Bar */
+.ts-login-top-bar {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ts-login-top-script {
+  font-family: "Brush Script MT", "Caveat", "Segoe Script", cursive, sans-serif;
+  font-size: 20px;
+  color: #2563eb;
+  letter-spacing: 0.3px;
+  transform: rotate(-1.5deg);
+  opacity: 0.9;
+}
+
+.ts-login-top-nav {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 2.2px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* Main Center Layout Grid */
+.ts-login-main-container {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0;
+  width: 100%;
+}
+
+/* Right Side Floating Decorative Column (from Reference Image) */
+.ts-login-right-decor {
+  position: absolute;
+  right: 5%;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 24px;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.ts-login-vertical-tagline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: #94a3b8;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.ts-login-book-stack-badge {
+  padding: 10px 14px;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25);
+  text-align: right;
+}
+
+.ts-login-book-stack-badge span {
+  display: block;
+  font-size: 9px;
+  color: #94a3b8;
+}
+
+/* Glassmorphism Login Card Container */
+.ts-login-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100%, 430px);
+}
+
+/* Header & Branding Area */
+.ts-login-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.ts-login-logo-container {
+  margin-bottom: 12px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.ts-login-wordmark {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.7px;
+  margin: 0 0 6px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-login-wordmark-term {
+  color: #0f172a;
+}
+
+.ts-login-wordmark-shield {
+  background: linear-gradient(135deg, #2563eb 0%, #38bdf8 30%, #7c3aed 70%, #9333ea 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.ts-login-tagline {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.1px;
+}
+
+.ts-login-subtext {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Glassmorphic White Card */
+.ts-login-panel {
+  width: 100%;
+  padding: 34px 32px 30px 32px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 22px;
+  box-shadow: 
+    0 20px 45px -12px rgba(15, 23, 42, 0.07),
+    0 0 0 1px rgba(255, 255, 255, 0.95) inset;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* Form Styles */
+.ts-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.ts-input-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.ts-input-icon-left {
+  position: absolute;
+  left: 14px;
+  color: #94a3b8;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+.ts-form-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px 0 42px;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  outline: none;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 13px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.ts-form-input:focus {
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.ts-form-input::placeholder {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.ts-visibility-btn {
+  position: absolute;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ts-visibility-btn:hover {
+  color: #334155;
+}
+
+/* Forgot Password Link */
+.ts-forgot-pass-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+  margin-bottom: 2px;
+}
+
+.ts-forgot-pass-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ts-forgot-pass-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Primary Sign In Button - Electric Blue to Purple Gradient */
+.ts-primary-btn {
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #0284c7 0%, #2563eb 45%, #7c3aed 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.32);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.ts-primary-btn:hover:not(:disabled) {
+  background: linear-gradient(90deg, #0369a1 0%, #1d4ed8 45%, #6d28d9 100%);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.42);
+  transform: translateY(-1px);
+}
+
+.ts-primary-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.ts-primary-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Divider */
+.ts-oauth-divider {
+  display: flex;
+  align-items: center;
+  margin: 16px 0 14px 0;
+  gap: 12px;
+}
+
+.ts-oauth-divider-line {
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.ts-oauth-divider-text {
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.5px;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+/* OAuth Providers Group */
+.ts-oauth-group {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.ts-oauth-btn {
+  height: 46px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.ts-oauth-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.ts-oauth-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.ts-oauth-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Alert Notification */
+.ts-alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.ts-alert-banner.error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.ts-alert-banner.info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.ts-alert-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Account Switcher Footer */
+.ts-card-account-switch {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ts-switch-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  font-weight: 750;
+  cursor: pointer;
+  font-size: 12.5px;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.ts-switch-btn:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Bottom Footer Bar */
+.ts-login-bottom-bar {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .ts-primary-btn,
+  .ts-oauth-btn,
+  .ts-form-input {
+    transition: none !important;
+  }
+}
+
+/* Responsive Rules */
+@media (max-width: 1024px) {
+  .ts-login-right-decor {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .ts-login-page {
+    padding: 20px 16px;
+  }
+
+  .ts-login-top-script {
+    display: none;
+  }
+
+  .ts-login-panel {
+    padding: 26px 20px;
+    border-radius: 18px;
+  }
+
+  .ts-login-wordmark {
+    font-size: 26px;
+  }
+}

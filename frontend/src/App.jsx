@@ -56,10 +56,11 @@ import {
   getContractRelationships,
 } from "./api/analysisApi";
 import { askContractQuestion, getQAHistory } from "./api/qaApi";
-import { getCurrentUser } from "./api/authApi";
+import { getCurrentUser, exchangeOAuthCode } from "./api/authApi";
 import { getContracts, deleteContract } from "./api/contractsApi";
 import Login from "./components/Login";
 import Register from "./components/Register";
+import SplashScreen from "./components/SplashScreen";
 
 import "./App.css";
 
@@ -88,7 +89,20 @@ const acceptedFileTypes = [
   ".avi",
 ];
 
+// Module-scoped in-flight exchange promise to deduplicate execution across React 18 StrictMode double-mounting
+let inFlightOAuthExchange = null;
+
 function App() {
+  const [showSplash, setShowSplash] = useState(() => {
+    // If returning from an OAuth callback with an exchange code or error, bypass splash screen
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("oauth_code") || params.has("error")) {
+        return false;
+      }
+    }
+    return true;
+  });
   const [activePage, setActivePage] = useState("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [authState, setAuthState] = useState("checking");
@@ -120,6 +134,74 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Check for OAuth callback exchange code or error in URL query
+    const urlParams = new URLSearchParams(window.location.search);
+    const oauthCode = urlParams.get("oauth_code");
+    const errorFromUrl = urlParams.get("error");
+
+    if (errorFromUrl) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setAuthScreen("login");
+      setAuthState("unauthenticated");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Handle OAuth single-use code exchange with deduping across StrictMode remounts
+    if (oauthCode || inFlightOAuthExchange) {
+      setUserLoading(true);
+
+      if (!inFlightOAuthExchange && oauthCode) {
+        inFlightOAuthExchange = exchangeOAuthCode(oauthCode)
+          .then((response) => {
+            if (response?.access_token) {
+              localStorage.setItem("termShieldToken", response.access_token);
+              // Clean up the URL query only AFTER successful token storage
+              window.history.replaceState({}, document.title, window.location.pathname);
+              return response;
+            }
+            throw new Error("The exchange response did not include an access token.");
+          })
+          .catch((err) => {
+            localStorage.removeItem("termShieldToken");
+            window.history.replaceState({}, document.title, window.location.pathname);
+            throw err;
+          })
+          .finally(() => {
+            // Allow future exchanges after a short interval
+            setTimeout(() => {
+              inFlightOAuthExchange = null;
+            }, 1000);
+          });
+      }
+
+      inFlightOAuthExchange
+        .then((response) => {
+          if (!cancelled && response?.user) {
+            setCurrentUser(response.user);
+            setAuthState("authenticated");
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setCurrentUser(null);
+            setAuthScreen("login");
+            setAuthState("unauthenticated");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setUserLoading(false);
+          }
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const token = localStorage.getItem("termShieldToken");
 
     if (!token) {
@@ -246,6 +328,10 @@ function App() {
     await refreshContracts();
   };
 
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
   if (authState === "checking") {
     return (
       <main
@@ -253,13 +339,16 @@ function App() {
           minHeight: "100vh",
           display: "grid",
           placeItems: "center",
-          background: "#f6f6f8",
-          color: "#85858e",
+          background: "#060814",
+          color: "#94a3b8",
           fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-          fontSize: "12px",
+          fontSize: "13px",
         }}
       >
-        Checking your workspace...
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Loader2 size={18} className="spin" style={{ color: "#38bdf8" }} />
+          <span>Connecting to Term Shield...</span>
+        </div>
       </main>
     );
   }
@@ -270,48 +359,50 @@ function App() {
     return (
       <div style={{ position: "relative", minHeight: "100vh" }}>
         {isLoginScreen ? (
-          <Login onLoginSuccess={handleLoginSuccess} />
+          <Login
+            onLoginSuccess={handleLoginSuccess}
+            onSwitchToRegister={() => setAuthScreen("register")}
+          />
         ) : (
           <Register onRegisterSuccess={handleRegisterSuccess} />
         )}
 
-        <div
-          style={{
-            position: "fixed",
-            right: 0,
-            bottom: "24px",
-            left: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "7px",
-            padding: "0 18px",
-            color: "#85827b",
-            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-            fontSize: "10px",
-          }}
-        >
-          <span>
-            {isLoginScreen
-              ? "New to Term Shield?"
-              : "Already have an account?"}
-          </span>
-          <button
-            type="button"
-            onClick={() => setAuthScreen(isLoginScreen ? "register" : "login")}
+        {!isLoginScreen && (
+          <div
             style={{
-              padding: "4px 0",
-              border: 0,
-              background: "transparent",
-              color: "#986a37",
-              font: "inherit",
-              fontWeight: 800,
-              cursor: "pointer",
+              position: "fixed",
+              right: 0,
+              bottom: "24px",
+              left: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "7px",
+              padding: "0 18px",
+              color: "#64748b",
+              fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+              fontSize: "12px",
             }}
           >
-            {isLoginScreen ? "Create account" : "Sign in"}
-          </button>
-        </div>
+            <span>Already have an account?</span>
+            <button
+              type="button"
+              onClick={() => setAuthScreen("login")}
+              style={{
+                padding: "4px 0",
+                border: 0,
+                background: "transparent",
+                color: "#2563eb",
+                font: "inherit",
+                fontWeight: 700,
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              Sign in
+            </button>
+          </div>
+        )}
       </div>
     );
   }

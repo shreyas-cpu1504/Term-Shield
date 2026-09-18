@@ -1,0 +1,360 @@
+/* Premium Modern AI Startup Splash Screen - Matching Reference Image */
+.ts-splash-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 99999;
+  background: radial-gradient(circle at 50% 30%, #0c1236 0%, #060818 60%, #03040c 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28px 36px 20px 36px;
+  overflow: hidden;
+  color: #f8fafc;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  opacity: 1;
+  transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.55s ease;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.ts-splash-overlay.ts-splash-exit {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Atmospheric Ambient Glowing Waves & Cosmic Energy */
+.ts-splash-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.ts-splash-light-wave-left {
+  position: absolute;
+  top: -10%;
+  left: -20%;
+  width: 70vw;
+  height: 90vh;
+  background: radial-gradient(ellipse at center, rgba(37, 99, 235, 0.28) 0%, rgba(56, 189, 248, 0.12) 40%, transparent 70%);
+  filter: blur(80px);
+  transform: rotate(-15deg);
+  animation: tsWaveDrift 3.5s ease-in-out infinite alternate;
+}
+
+.ts-splash-light-wave-right {
+  position: absolute;
+  bottom: -15%;
+  right: -15%;
+  width: 75vw;
+  height: 90vh;
+  background: radial-gradient(ellipse at center, rgba(147, 51, 234, 0.25) 0%, rgba(79, 70, 229, 0.14) 45%, transparent 72%);
+  filter: blur(85px);
+  transform: rotate(20deg);
+  animation: tsWaveDriftRev 3.5s ease-in-out infinite alternate;
+}
+
+/* Flowing Cosmic Ribbon SVG */
+.ts-splash-ribbon-wrap {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: screen;
+}
+
+/* Top Bar */
+.ts-splash-top-bar {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: tsFadeIn 0.8s ease forwards;
+}
+
+.ts-splash-top-left {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 2.8px;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.ts-splash-top-right {
+  font-family: "Brush Script MT", "Caveat", "Segoe Script", cursive, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: #7dd3fc;
+  text-shadow: 0 0 14px rgba(56, 189, 248, 0.55);
+  transform: rotate(-2deg);
+  letter-spacing: 0.5px;
+}
+
+/* Center Content */
+.ts-splash-center {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: auto 0;
+  max-width: 620px;
+  width: 100%;
+}
+
+.ts-splash-logo-container {
+  position: relative;
+  margin-bottom: 24px;
+  display: inline-grid;
+  place-items: center;
+  animation: tsLogoIntro 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Brand Wordmark: Term Shield */
+.ts-splash-wordmark {
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin: 0 0 12px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ts-splash-term {
+  color: #ffffff;
+  text-shadow: 0 2px 16px rgba(255, 255, 255, 0.25);
+}
+
+.ts-splash-shield {
+  background: linear-gradient(135deg, #38bdf8 0%, #60a5fa 35%, #a855f7 75%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 14px rgba(96, 165, 250, 0.45));
+}
+
+/* Tagline */
+.ts-splash-tagline {
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 3.5px;
+  color: #94a3b8;
+  margin: 0 0 34px 0;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+/* Progress Bar Row */
+.ts-splash-progress-row {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ts-splash-progress-track {
+  flex: 1;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.ts-splash-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #38bdf8 65%, #ffffff 100%);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.95);
+  transition: width 0.08s linear;
+}
+
+.ts-splash-percent-text {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #94a3b8;
+  min-width: 40px;
+  text-align: right;
+  letter-spacing: 0.5px;
+}
+
+/* Bottom 3 Capability Columns */
+.ts-splash-bottom-wrap {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.ts-splash-capabilities {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  justify-items: center;
+  padding: 10px 0;
+}
+
+.ts-splash-cap-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 9px;
+  width: 100%;
+  position: relative;
+}
+
+.ts-splash-cap-item:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 20%;
+  height: 60%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ts-splash-cap-icon-box {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ts-splash-cap-icon-box.purple {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.35);
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.25);
+}
+
+.ts-splash-cap-icon-box.blue {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.ts-splash-cap-icon-box.cyan {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.35);
+  box-shadow: 0 0 12px rgba(103, 232, 249, 0.25);
+}
+
+.ts-splash-cap-label {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 1.8px;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Micro Footer */
+.ts-splash-micro-footer {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2.2px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* Keyframes */
+@keyframes tsLogoIntro {
+  0% {
+    opacity: 0;
+    transform: scale(0.86) translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes tsWaveDrift {
+  0% {
+    transform: rotate(-15deg) scale(0.95);
+  }
+  100% {
+    transform: rotate(-10deg) scale(1.05);
+  }
+}
+
+@keyframes tsWaveDriftRev {
+  0% {
+    transform: rotate(20deg) scale(0.95);
+  }
+  100% {
+    transform: rotate(25deg) scale(1.06);
+  }
+}
+
+@keyframes tsFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .ts-splash-overlay,
+  .ts-splash-logo-container,
+  .ts-splash-top-bar,
+  .ts-splash-light-wave-left,
+  .ts-splash-light-wave-right {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Responsive Scaling */
+@media (max-width: 680px) {
+  .ts-splash-overlay {
+    padding: 20px 18px 16px 18px;
+  }
+
+  .ts-splash-top-bar {
+    justify-content: center;
+  }
+
+  .ts-splash-top-right {
+    display: none;
+  }
+
+  .ts-splash-wordmark {
+    font-size: 32px;
+  }
+
+  .ts-splash-tagline {
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  .ts-splash-cap-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  .ts-splash-progress-row {
+    max-width: 280px;
+  }
+}

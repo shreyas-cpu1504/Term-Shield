@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     google_client_secret: str | None = None
     google_redirect_uri: str | None = None
 
+
     model_config = SettingsConfigDict(
         env_file=(_BASE_DIR / ".env", ".env"),
         env_file_encoding="utf-8",
