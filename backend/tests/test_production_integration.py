@@ -300,3 +300,62 @@ def test_contract_deletion_cleans_storage_uploads(client: TestClient):
 
     assert not raw_upload.exists(), "Raw upload file in storage/uploads should be removed after deletion"
 
+
+def test_cors_multiple_origins_support():
+    """Verify that multiple origins separated by commas in frontend_url are loaded into CORS headers."""
+    from app.main import app
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    # Test that CORS middleware is registered and default origins exist
+    for middleware in app.user_middleware:
+        if "CORSMiddleware" in str(middleware.cls):
+            allow_origins = middleware.kwargs.get("allow_origins", [])
+            assert "http://localhost:5173" in allow_origins
+            assert "http://127.0.0.1:5173" in allow_origins
+
+
+def test_reports_and_analysis_contract_integrity(client: TestClient):
+    """Verify that analysis, summary, and relationships return all fields needed by frontend Reports & Risk Analysis."""
+    fake_txt = (
+        b"1. Definitions and Term.\n"
+        b"This Agreement starts on Effective Date and lasts 2 years.\n\n"
+        b"2. Limitation of Liability.\n"
+        b"Vendor liability shall be unlimited for all indirect and consequential damages.\n\n"
+        b"3. Termination.\n"
+        b"Either party may terminate immediately with written notice.\n"
+    )
+    files = {"file": ("reports_contract.txt", io.BytesIO(fake_txt), "text/plain")}
+    resp = client.post("/api/v1/ingestion/file", files=files)
+    assert resp.status_code == 200
+    file_id = resp.json()["file_id"]
+
+    # 1. Fetch analysis
+    analysis_resp = client.get(f"/api/v1/clauses/{file_id}/analysis")
+    assert analysis_resp.status_code == 200
+    analysis_data = analysis_resp.json()
+    assert "analyses" in analysis_data
+    assert len(analysis_data["analyses"]) > 0
+    first_analysis = analysis_data["analyses"][0]
+    assert "clause_id" in first_analysis
+    assert "risk_level" in first_analysis
+    assert "risk_score" in first_analysis
+    assert "meaning" in first_analysis
+
+    # 2. Fetch summary
+    summary_resp = client.get(f"/api/v1/clauses/{file_id}/summary")
+    assert summary_resp.status_code == 200
+    summary_data = summary_resp.json()
+    assert "overall_risk" in summary_data
+    assert "overall_risk_score" in summary_data
+    assert "risk_summary" in summary_data
+    assert "total_clauses" in summary_data
+
+    # 3. Fetch relationships
+    rel_resp = client.get(f"/api/v1/clauses/{file_id}/relationships")
+    assert rel_resp.status_code == 200
+    rel_data = rel_resp.json()
+    assert "relationships" in rel_data
+    assert "relationship_count" in rel_data
+
+

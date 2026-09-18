@@ -38,8 +38,11 @@ cors_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-if settings.frontend_url and settings.frontend_url not in cors_origins:
-    cors_origins.append(settings.frontend_url)
+if settings.frontend_url:
+    for origin in settings.frontend_url.split(","):
+        origin = origin.strip()
+        if origin and origin not in cors_origins:
+            cors_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2057,15 +2057,19 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate }) {
 
   const recommendationsList = clauses
     .filter((c) => c?.recommendation && String(c.recommendation).trim().length > 0)
-    .map((c) => ({
-      clauseId: c.clause_id,
-      clauseNumber: c.clause_number,
-      title: c.title || (c.clause_number ? `Clause ${c.clause_number}` : c.clause_id),
-      riskLevel: String(c.risk_level || "LOW").toUpperCase(),
-      riskScore: c.risk_score ?? 0,
-      recommendation: c.recommendation,
-      whyItMatters: c.why_it_matters || null,
-    }));
+    .map((c) => {
+      const title = c.title || (c.clause_number ? `Clause ${c.clause_number}` : c.clause_id);
+      return {
+        clauseId: c.clause_id,
+        clauseNumber: c.clause_number,
+        title: title,
+        clauseTitle: title,
+        riskLevel: String(c.risk_level || "LOW").toUpperCase(),
+        riskScore: c.risk_score ?? 0,
+        recommendation: c.recommendation,
+        whyItMatters: c.why_it_matters || null,
+      };
+    });
 
   const relationships = Array.isArray(relationshipsData?.relationships)
     ? relationshipsData.relationships
@@ -4358,7 +4362,19 @@ function RiskAnalysis({
           <ShieldAlert size={20} />
         </div>
 
-        {clauses.length === 0 ? (
+        {!fileId ? (
+          <div className="empty-state">
+            <div className="empty-icon">
+              <FileText size={23} />
+            </div>
+
+            <h4>No contract selected</h4>
+
+            <p>
+              Select an analyzed contract from your library or upload a new agreement to review its risk analysis and clause scoring.
+            </p>
+          </div>
+        ) : clauses.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">
               <AlertCircle size={23} />
@@ -4493,19 +4509,21 @@ function RiskAnalysis({
         )}
       </section>
 
-      <details className="debug-analysis">
-        <summary>
-          View raw AI analysis response
-        </summary>
+      {Boolean(analysis) && (
+        <details className="debug-analysis">
+          <summary>
+            View raw AI analysis response
+          </summary>
 
-        <pre>
-          {JSON.stringify(
-            analysis,
-            null,
-            2
-          )}
-        </pre>
-      </details>
+          <pre>
+            {JSON.stringify(
+              analysis,
+              null,
+              2
+            )}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
