@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Component } from "react";
 import {
   LayoutDashboard,
   FileText,
@@ -42,6 +42,7 @@ import {
   Download,
   TrendingUp,
   Clock,
+  Share2,
 } from "lucide-react";
 
 import {
@@ -249,9 +250,9 @@ function App() {
     } catch (error) {
       setContractsError(
         error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          error?.message ||
-          "Unable to load your contract library."
+        error?.response?.data?.message ||
+        error?.message ||
+        "Unable to load your contract library."
       );
     } finally {
       setContractsLoading(false);
@@ -268,12 +269,12 @@ function App() {
 
   const handleLoginSuccess = () => {
     setAuthState("authenticated");
-    fetchCurrentUser().catch(() => {});
+    fetchCurrentUser().catch(() => { });
   };
 
   const handleRegisterSuccess = () => {
     setAuthState("authenticated");
-    fetchCurrentUser().catch(() => {});
+    fetchCurrentUser().catch(() => { });
   };
 
   const handleLogout = () => {
@@ -308,9 +309,9 @@ function App() {
     } catch (error) {
       setSelectedAnalysisError(
         error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          error?.message ||
-          "Unable to load the selected contract analysis."
+        error?.response?.data?.message ||
+        error?.message ||
+        "Unable to load the selected contract analysis."
       );
     } finally {
       setSelectedAnalysisLoading(false);
@@ -409,14 +410,14 @@ function App() {
 
   const userInitials = currentUser?.full_name
     ? currentUser.full_name
-        .trim()
-        .split(/\s+/)
-        .map((part) => part[0]?.toUpperCase())
-        .slice(0, 2)
-        .join("") || "TS"
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0]?.toUpperCase())
+      .slice(0, 2)
+      .join("") || "TS"
     : currentUser?.email
-    ? currentUser.email.slice(0, 2).toUpperCase()
-    : "TS";
+      ? currentUser.email.slice(0, 2).toUpperCase()
+      : "TS";
 
   const userDisplayName =
     currentUser?.full_name?.trim() || currentUser?.email || "Account";
@@ -477,9 +478,8 @@ function App() {
         <div className="sidebar-bottom">
           <button
             type="button"
-            className={`nav-item ${
-              activePage === "settings" ? "active" : ""
-            }`}
+            className={`nav-item ${activePage === "settings" ? "active" : ""
+              }`}
             onClick={() => handleNavigation("settings")}
           >
             <Settings size={18} />
@@ -537,9 +537,8 @@ function App() {
 
           <div className="topbar-actions">
             <button
-              className={`ask-button ${
-                activePage === "ask" ? "active" : ""
-              }`}
+              className={`ask-button ${activePage === "ask" ? "active" : ""
+                }`}
               type="button"
               onClick={() => handleNavigation("ask")}
               aria-label="Ask My T&C"
@@ -692,1301 +691,1569 @@ function App() {
    CLAUSE EXPLORER
 ========================= */
 
-            function ClauseExplorer({ fileId, analysis }) {
-              const [explorerView, setExplorerView] = useState("list");
-              const [searchTerm, setSearchTerm] = useState("");
-              const [categoryFilter, setCategoryFilter] = useState("all");
-              const [riskFilter, setRiskFilter] = useState("all");
-              const [selectedClauseId, setSelectedClauseId] = useState(null);
+function ClauseExplorer({ fileId, analysis }) {
+  const [explorerView, setExplorerView] = useState("list");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [selectedClauseId, setSelectedClauseId] = useState(null);
 
-              const clauses = Array.isArray(analysis)
-                ? analysis
-                : analysis?.analyses ||
-                  analysis?.clauses ||
-                  analysis?.results ||
-                  analysis?.data ||
-                  [];
+  const clauses = Array.isArray(analysis)
+    ? analysis
+    : analysis?.analyses ||
+    analysis?.clauses ||
+    analysis?.results ||
+    analysis?.data ||
+    [];
 
-              const normalizedClauses = clauses.map((clause, index) => {
-                const risk = String(
-                  clause?.risk_level ||
-                    clause?.risk ||
-                    clause?.riskLevel ||
-                    "unknown"
-                ).toLowerCase();
-                const category =
-                  clause?.clause_type ||
-                  clause?.category ||
-                  clause?.classification ||
-                  "General clause";
-                const title =
-                  clause?.title ||
-                  clause?.clause_title ||
-                  category ||
-                  `Clause ${index + 1}`;
-                const explanation =
-                  clause?.meaning ||
-                  clause?.plain_language ||
-                  clause?.explanation ||
-                  clause?.summary ||
-                  "No explanation available.";
-                const clauseText =
-                  clause?.text ||
-                  clause?.clause_text ||
-                  clause?.content ||
-                  explanation;
-                const id = clause?.clause_id || clause?.id || `clause-${index}`;
+  const normalizedClauses = clauses.map((clause, index) => {
+    const risk = String(
+      clause?.risk_level ||
+      clause?.risk ||
+      clause?.riskLevel ||
+      "unknown"
+    ).toLowerCase();
+    const category =
+      clause?.clause_type ||
+      clause?.category ||
+      clause?.classification ||
+      "General clause";
+    const title =
+      clause?.title ||
+      clause?.clause_title ||
+      category ||
+      `Clause ${index + 1}`;
+    const explanation =
+      clause?.meaning ||
+      clause?.plain_language ||
+      clause?.explanation ||
+      clause?.summary ||
+      "No explanation available.";
+    const clauseText =
+      clause?.text ||
+      clause?.clause_text ||
+      clause?.content ||
+      explanation;
+    const id = clause?.clause_id || clause?.id || `clause-${index}`;
 
-                return {
-                  ...clause,
-                  id,
-                  title,
-                  category,
-                  risk,
-                  explanation,
-                  clauseText,
-                  score: clause?.risk_score ?? clause?.score ?? clause?.riskScore,
-                };
-              });
+    return {
+      ...clause,
+      id,
+      title,
+      category,
+      risk,
+      explanation,
+      clauseText,
+      score: clause?.risk_score ?? clause?.score ?? clause?.riskScore,
+    };
+  });
 
-              const categories = [
-                ...new Set(normalizedClauses.map((clause) => clause.category)),
-              ];
+  const categories = [
+    ...new Set(normalizedClauses.map((clause) => clause.category)),
+  ];
 
-              const visibleClauses = normalizedClauses.filter((clause) => {
-                const search = searchTerm.trim().toLowerCase();
-                const matchesSearch = [
-                  clause.title,
-                  clause.category,
-                  clause.explanation,
-                  clause.clauseText,
-                ].some((value) =>
-                  String(value).toLowerCase().includes(search)
-                );
-                const matchesCategory =
-                  categoryFilter === "all" || clause.category === categoryFilter;
-                const matchesRisk =
-                  riskFilter === "all" || clause.risk === riskFilter;
+  const visibleClauses = normalizedClauses.filter((clause) => {
+    const search = searchTerm.trim().toLowerCase();
+    const matchesSearch = [
+      clause.title,
+      clause.category,
+      clause.explanation,
+      clause.clauseText,
+    ].some((value) =>
+      String(value).toLowerCase().includes(search)
+    );
+    const matchesCategory =
+      categoryFilter === "all" || clause.category === categoryFilter;
+    const matchesRisk =
+      riskFilter === "all" || clause.risk === riskFilter;
 
-                return matchesSearch && matchesCategory && matchesRisk;
-              });
+    return matchesSearch && matchesCategory && matchesRisk;
+  });
 
-              const selectedClause = normalizedClauses.find(
-                (clause) => clause.id === selectedClauseId
-              );
+  const selectedClause = normalizedClauses.find(
+    (clause) => clause.id === selectedClauseId
+  );
 
-              const detailReasons = selectedClause
-                ? Array.isArray(selectedClause.risk_reasons)
-                  ? selectedClause.risk_reasons
-                  : selectedClause.risk_reasons
-                    ? [selectedClause.risk_reasons]
-                    : []
-                : [];
-              const detailRecommendations = selectedClause
-                ? Array.isArray(selectedClause.recommendations)
-                  ? selectedClause.recommendations
-                  : selectedClause.recommendations
-                    ? [selectedClause.recommendations]
-                    : []
-                : [];
+  const detailReasons = selectedClause
+    ? Array.isArray(selectedClause.risk_reasons)
+      ? selectedClause.risk_reasons
+      : selectedClause.risk_reasons
+        ? [selectedClause.risk_reasons]
+        : []
+    : [];
+  const detailRecommendations = selectedClause
+    ? Array.isArray(selectedClause.recommendations)
+      ? selectedClause.recommendations
+      : selectedClause.recommendations
+        ? [selectedClause.recommendations]
+        : []
+    : [];
 
-              return (
-                <div className="clause-explorer-page">
-                  <section className="clause-explorer-header">
+  return (
+    <div className="clause-explorer-page">
+      <section className="clause-explorer-header">
+        <div>
+          <span className="eyebrow">CLAUSE INTELLIGENCE</span>
+          <h2>Explore every clause.</h2>
+          <p>
+            Search the analyzed language, examine inter-clause dependencies, and explore
+            how clauses override or reference each other.
+          </p>
+        </div>
+
+        <div className="clause-explorer-header-right">
+          <div className="clause-view-toggle" role="tablist" aria-label="Clause Explorer View">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={explorerView === "list"}
+              className={`clause-view-toggle-btn ${explorerView === "list" ? "active" : ""}`}
+              onClick={() => setExplorerView("list")}
+            >
+              <ListChecks size={15} />
+              <span>Clause List</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={explorerView === "relationships"}
+              className={`clause-view-toggle-btn ${explorerView === "relationships" ? "active" : ""}`}
+              onClick={() => setExplorerView("relationships")}
+            >
+              <Network size={15} />
+              <span>Clause Relationships</span>
+            </button>
+          </div>
+
+          <div className="clause-explorer-count">
+            <strong>{normalizedClauses.length}</strong>
+            <span>clauses analyzed</span>
+          </div>
+        </div>
+      </section>
+
+      {explorerView === "list" ? (
+        <>
+          <section className="clause-explorer-toolbar" aria-label="Clause filters">
+            <div className="clause-explorer-search">
+              <Search size={17} />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search clauses, topics or explanations..."
+                aria-label="Search clauses"
+              />
+            </div>
+
+            <div className="clause-filter-group">
+              <label>
+                Category
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All categories</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Risk level
+                <select
+                  value={riskFilter}
+                  onChange={(event) => setRiskFilter(event.target.value)}
+                >
+                  <option value="all">All risk levels</option>
+                  <option value="high">High risk</option>
+                  <option value="medium">Medium risk</option>
+                  <option value="low">Low risk</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <div className="clause-explorer-layout">
+            <section className="clause-list-panel" aria-label="Clause list">
+              <div className="clause-list-heading">
+                <div>
+                  <span className="card-label">ANALYZED CLAUSES</span>
+                  <h3>{visibleClauses.length} visible</h3>
+                </div>
+                <span>Click a clause to inspect it</span>
+              </div>
+
+              {visibleClauses.length ? (
+                <div className="clause-explorer-list">
+                  {visibleClauses.map((clause, index) => (
+                    <button
+                      className={`clause-explorer-item ${selectedClause?.id === clause.id ? "selected" : ""
+                        }`}
+                      type="button"
+                      key={clause.id}
+                      onClick={() => setSelectedClauseId(clause.id)}
+                    >
+                      <span className="clause-explorer-number">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+
+                      <span className="clause-explorer-item-copy">
+                        <strong>{clause.title}</strong>
+                        <span>{clause.category}</span>
+                        <small>{clause.explanation}</small>
+                      </span>
+
+                      <span className={`clause-explorer-risk ${clause.risk}`}>
+                        {clause.score !== undefined && (
+                          <b>{clause.score}</b>
+                        )}
+                        {clause.risk}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="clause-explorer-empty compact">
+                  <AlertCircle size={21} />
+                  <strong>
+                    {normalizedClauses.length
+                      ? "No clauses match these filters"
+                      : "No clause analysis available"}
+                  </strong>
+                  <span>
+                    {normalizedClauses.length
+                      ? "Try a different search term or reset the filters."
+                      : "Analyze a contract to populate the Clause Explorer."}
+                  </span>
+                </div>
+              )}
+            </section>
+
+            <section className="clause-detail-panel" aria-live="polite">
+              {selectedClause ? (
+                <>
+                  <div className="clause-detail-header">
                     <div>
-                      <span className="eyebrow">CLAUSE INTELLIGENCE</span>
-                      <h2>Explore every clause.</h2>
-                      <p>
-                        Search the analyzed language, examine inter-clause dependencies, and explore
-                        how clauses override or reference each other.
-                      </p>
+                      <span className="clause-number">
+                        CLAUSE DETAIL
+                      </span>
+                      <h3>{selectedClause.title}</h3>
+                      <span className="clause-detail-category">
+                        {selectedClause.category}
+                      </span>
                     </div>
-
-                    <div className="clause-explorer-header-right">
-                      <div className="clause-view-toggle" role="tablist" aria-label="Clause Explorer View">
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={explorerView === "list"}
-                          className={`clause-view-toggle-btn ${explorerView === "list" ? "active" : ""}`}
-                          onClick={() => setExplorerView("list")}
-                        >
-                          <ListChecks size={15} />
-                          <span>Clause List</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={explorerView === "relationships"}
-                          className={`clause-view-toggle-btn ${explorerView === "relationships" ? "active" : ""}`}
-                          onClick={() => setExplorerView("relationships")}
-                        >
-                          <Network size={15} />
-                          <span>Clause Relationships</span>
-                        </button>
-                      </div>
-
-                      <div className="clause-explorer-count">
-                        <strong>{normalizedClauses.length}</strong>
-                        <span>clauses analyzed</span>
-                      </div>
-                    </div>
-                  </section>
-
-                  {explorerView === "list" ? (
-                    <>
-                      <section className="clause-explorer-toolbar" aria-label="Clause filters">
-                        <div className="clause-explorer-search">
-                          <Search size={17} />
-                          <input
-                        type="search"
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        placeholder="Search clauses, topics or explanations..."
-                        aria-label="Search clauses"
-                      />
-                    </div>
-
-                    <div className="clause-filter-group">
-                      <label>
-                        Category
-                        <select
-                          value={categoryFilter}
-                          onChange={(event) => setCategoryFilter(event.target.value)}
-                        >
-                          <option value="all">All categories</option>
-                          {categories.map((category) => (
-                            <option key={category} value={category}>
-                              {category}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label>
-                        Risk level
-                        <select
-                          value={riskFilter}
-                          onChange={(event) => setRiskFilter(event.target.value)}
-                        >
-                          <option value="all">All risk levels</option>
-                          <option value="high">High risk</option>
-                          <option value="medium">Medium risk</option>
-                          <option value="low">Low risk</option>
-                          <option value="unknown">Unknown</option>
-                        </select>
-                      </label>
-                    </div>
-                  </section>
-
-                  <div className="clause-explorer-layout">
-                    <section className="clause-list-panel" aria-label="Clause list">
-                      <div className="clause-list-heading">
-                        <div>
-                          <span className="card-label">ANALYZED CLAUSES</span>
-                          <h3>{visibleClauses.length} visible</h3>
-                        </div>
-                        <span>Click a clause to inspect it</span>
-                      </div>
-
-                      {visibleClauses.length ? (
-                        <div className="clause-explorer-list">
-                          {visibleClauses.map((clause, index) => (
-                            <button
-                              className={`clause-explorer-item ${
-                                selectedClause?.id === clause.id ? "selected" : ""
-                              }`}
-                              type="button"
-                              key={clause.id}
-                              onClick={() => setSelectedClauseId(clause.id)}
-                            >
-                              <span className="clause-explorer-number">
-                                {String(index + 1).padStart(2, "0")}
-                              </span>
-
-                              <span className="clause-explorer-item-copy">
-                                <strong>{clause.title}</strong>
-                                <span>{clause.category}</span>
-                                <small>{clause.explanation}</small>
-                              </span>
-
-                              <span className={`clause-explorer-risk ${clause.risk}`}>
-                                {clause.score !== undefined && (
-                                  <b>{clause.score}</b>
-                                )}
-                                {clause.risk}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="clause-explorer-empty compact">
-                          <AlertCircle size={21} />
-                          <strong>
-                            {normalizedClauses.length
-                              ? "No clauses match these filters"
-                              : "No clause analysis available"}
-                          </strong>
-                          <span>
-                            {normalizedClauses.length
-                              ? "Try a different search term or reset the filters."
-                              : "Analyze a contract to populate the Clause Explorer."}
-                          </span>
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="clause-detail-panel" aria-live="polite">
-                      {selectedClause ? (
-                        <>
-                          <div className="clause-detail-header">
-                            <div>
-                              <span className="clause-number">
-                                CLAUSE DETAIL
-                              </span>
-                              <h3>{selectedClause.title}</h3>
-                              <span className="clause-detail-category">
-                                {selectedClause.category}
-                              </span>
-                            </div>
-                            <span className={`clause-explorer-risk ${selectedClause.risk}`}>
-                              {selectedClause.risk}
-                            </span>
-                          </div>
-
-                          <div className="clause-detail-score">
-                            <span>Risk score</span>
-                            <strong>
-                              {selectedClause.score !== undefined
-                                ? selectedClause.score
-                                : "Not scored"}
-                            </strong>
-                          </div>
-
-                          <ClauseDetailSection
-                            icon={FileText}
-                            title="Clause text"
-                            text={selectedClause.clauseText}
-                          />
-
-                          <ClauseDetailSection
-                            icon={AlertCircle}
-                            title="Why it matters"
-                            items={detailReasons.length ? detailReasons : [selectedClause.user_impact || selectedClause.explanation]}
-                          />
-
-                          <ClauseDetailSection
-                            icon={ShieldAlert}
-                            title="Risk explanation"
-                            items={detailReasons.length ? detailReasons : [selectedClause.explanation]}
-                          />
-
-                          <ClauseDetailSection
-                            icon={CheckCircle2}
-                            title="Recommendation"
-                            items={detailRecommendations.length ? detailRecommendations : ["No recommendation was provided for this clause."]}
-                            tone="recommendation"
-                          />
-                        </>
-                      ) : (
-                        <div className="clause-explorer-empty detail-empty">
-                          <div className="clause-detail-empty-icon">
-                            <ListChecks size={23} />
-                          </div>
-                          <span className="card-label">CLAUSE DETAIL</span>
-                          <h3>Select a clause to begin</h3>
-                          <p>
-                            Choose an item from the list to view its text, risk context,
-                            and recommended next steps.
-                          </p>
-                        </div>
-                      )}
-                    </section>
+                    <span className={`clause-explorer-risk ${selectedClause.risk}`}>
+                      {selectedClause.risk}
+                    </span>
                   </div>
+
+                  <div className="clause-detail-score">
+                    <span>Risk score</span>
+                    <strong>
+                      {selectedClause.score !== undefined
+                        ? selectedClause.score
+                        : "Not scored"}
+                    </strong>
+                  </div>
+
+                  <ClauseDetailSection
+                    icon={FileText}
+                    title="Clause text"
+                    text={selectedClause.clauseText}
+                  />
+
+                  <ClauseDetailSection
+                    icon={AlertCircle}
+                    title="Why it matters"
+                    items={detailReasons.length ? detailReasons : [selectedClause.user_impact || selectedClause.explanation]}
+                  />
+
+                  <ClauseDetailSection
+                    icon={ShieldAlert}
+                    title="Risk explanation"
+                    items={detailReasons.length ? detailReasons : [selectedClause.explanation]}
+                  />
+
+                  <ClauseDetailSection
+                    icon={CheckCircle2}
+                    title="Recommendation"
+                    items={detailRecommendations.length ? detailRecommendations : ["No recommendation was provided for this clause."]}
+                    tone="recommendation"
+                  />
                 </>
               ) : (
-                <ClauseRelationships
-                  fileId={fileId}
-                  clauses={normalizedClauses}
-                  onSelectClause={(clauseId) => {
-                    if (clauseId) {
-                      setSelectedClauseId(clauseId);
-                    }
-                    setExplorerView("list");
-                  }}
-                />
-              )}
-            </div>
-          );
-        }
-
-            function ClauseDetailSection({
-              icon: Icon,
-              title,
-              text,
-              items,
-              tone = "",
-            }) {
-              return (
-                <div className={`clause-detail-section ${tone}`}>
-                  <div className="clause-detail-section-heading">
-                    <Icon size={14} />
-                    <span>{title}</span>
+                <div className="clause-explorer-empty detail-empty">
+                  <div className="clause-detail-empty-icon">
+                    <ListChecks size={23} />
                   </div>
-                  {text ? <p>{text}</p> : null}
-                  {items ? (
-                    <ul>
-                      {items.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  <span className="card-label">CLAUSE DETAIL</span>
+                  <h3>Select a clause to begin</h3>
+                  <p>
+                    Choose an item from the list to view its text, risk context,
+                    and recommended next steps.
+                  </p>
                 </div>
-              );
-            }
-
-            /* =========================
-               CLAUSE RELATIONSHIPS
-            ========================= */
-
-            const RELATIONSHIP_TYPES = {
-              OVERRIDE: {
-                label: "Override",
-                color: "#dc2626",
-                bgColor: "rgba(220, 38, 38, 0.08)",
-                borderColor: "rgba(220, 38, 38, 0.28)",
-                badgeColor: "#b91c1c",
-                icon: "⚠️",
-                dashed: false,
-                description: "This clause supersedes, invalidates, or takes precedence over another clause.",
-              },
-              EXCEPTION: {
-                label: "Exception",
-                color: "#9333ea",
-                bgColor: "rgba(147, 51, 234, 0.08)",
-                borderColor: "rgba(147, 51, 234, 0.28)",
-                badgeColor: "#7e22ce",
-                icon: "⚡",
-                dashed: true,
-                description: "This clause carves out an exception or exemption from general contractual rules.",
-              },
-              DEPENDENCY: {
-                label: "Dependency",
-                color: "#d97706",
-                bgColor: "rgba(217, 119, 6, 0.08)",
-                borderColor: "rgba(217, 119, 6, 0.28)",
-                badgeColor: "#b45309",
-                icon: "🔗",
-                dashed: true,
-                description: "This clause depends on, requires prior completion of, or is conditioned upon another clause.",
-              },
-              CONDITION: {
-                label: "Condition",
-                color: "#059669",
-                bgColor: "rgba(5, 150, 105, 0.08)",
-                borderColor: "rgba(5, 150, 105, 0.28)",
-                badgeColor: "#047857",
-                icon: "⚖️",
-                dashed: false,
-                description: "Imposes prerequisites or legal triggers before rights or obligations take effect.",
-              },
-              MODIFICATION: {
-                label: "Modification",
-                color: "#db2777",
-                bgColor: "rgba(219, 39, 119, 0.08)",
-                borderColor: "rgba(219, 39, 119, 0.28)",
-                badgeColor: "#be185d",
-                icon: "✏️",
-                dashed: false,
-                description: "Amends, restricts, or extends terms established elsewhere in the contract.",
-              },
-              REFERENCE: {
-                label: "Reference",
-                color: "#2563eb",
-                bgColor: "rgba(37, 99, 235, 0.08)",
-                borderColor: "rgba(37, 99, 235, 0.28)",
-                badgeColor: "#1d4ed8",
-                icon: "↗️",
-                dashed: false,
-                description: "Directly cites or cross-references another provision for context or definitions.",
-              },
-              SUBCLAUSE: {
-                label: "Subclause",
-                color: "#0284c7",
-                bgColor: "rgba(2, 132, 199, 0.08)",
-                borderColor: "rgba(2, 132, 199, 0.28)",
-                badgeColor: "#0369a1",
-                icon: "↳",
-                dashed: false,
-                description: "Hierarchical sub-provision subordinate to a primary clause.",
-              },
-              DEFINITION: {
-                label: "Definition",
-                color: "#475569",
-                bgColor: "rgba(71, 85, 105, 0.08)",
-                borderColor: "rgba(71, 85, 105, 0.28)",
-                badgeColor: "#334155",
-                icon: "📖",
-                dashed: false,
-                description: "Provides a defined term or legal interpretation applied across the agreement.",
-              },
-            };
-
-            function resolveClauseData(clauseId, clausesList = []) {
-              if (!clauseId) return null;
-              const strId = String(clauseId).trim();
-
-              const matched = clausesList.find((c) => {
-                if (String(c.clause_id) === strId || String(c.id) === strId) return true;
-                if (c.clause_number && String(c.clause_number).trim() === strId) return true;
-                const stripped = strId.replace(/^clause[_-]/i, "");
-                if (c.order !== undefined && String(c.order) === stripped) return true;
-                if (c.clause_number && String(c.clause_number).trim() === stripped) return true;
-                return false;
-              });
-
-              if (matched) {
-                const num = matched.clause_number ? `Clause ${matched.clause_number}` : null;
-                const rawTitle = matched.title || matched.category || `Clause ${strId}`;
-                return {
-                  id: strId,
-                  resolved: true,
-                  title: rawTitle,
-                  number: matched.clause_number || null,
-                  displayLabel: num ? `${num}: ${rawTitle}` : rawTitle,
-                  shortLabel: num || (rawTitle.length > 18 ? rawTitle.slice(0, 16) + "..." : rawTitle),
-                  category: matched.category || "General clause",
-                  risk: String(matched.risk || "unknown").toLowerCase(),
-                  clauseText: matched.clauseText || matched.text || "",
-                  explanation: matched.explanation || "",
-                  score: matched.score,
-                };
+              )}
+            </section>
+          </div>
+        </>
+      ) : (
+        <ClauseRelErrorBoundary>
+          <ClauseRelationships
+            fileId={fileId}
+            clauses={normalizedClauses}
+            onSelectClause={(clauseId) => {
+              if (clauseId) {
+                setSelectedClauseId(clauseId);
               }
+              setExplorerView("list");
+            }}
+          />
+        </ClauseRelErrorBoundary>
+      )}
+    </div>
+  );
+}
 
-              const cleanId = strId.replace(/^clause[_-]/i, "Clause ");
-              return {
-                id: strId,
-                resolved: false,
-                title: cleanId,
-                number: null,
-                displayLabel: cleanId,
-                shortLabel: cleanId.length > 18 ? cleanId.slice(0, 15) + "..." : cleanId,
-                category: "Referenced Section",
-                risk: "unknown",
-                clauseText: "",
-                explanation: "Referenced provision in this agreement.",
-                score: undefined,
-              };
-            }
+function ClauseDetailSection({
+  icon: Icon,
+  title,
+  text,
+  items,
+  tone = "",
+}) {
+  return (
+    <div className={`clause-detail-section ${tone}`}>
+      <div className="clause-detail-section-heading">
+        <Icon size={14} />
+        <span>{title}</span>
+      </div>
+      {text ? <p>{text}</p> : null}
+      {items ? (
+        <ul>
+          {items.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
-            function ClauseRelationships({ fileId, clauses = [], onSelectClause }) {
-              const [relationshipsData, setRelationshipsData] = useState(null);
-              const [loading, setLoading] = useState(false);
-              const [error, setError] = useState(null);
-              const [typeFilter, setTypeFilter] = useState("all");
-              const [searchQuery, setSearchQuery] = useState("");
-              const [selectedRelIndex, setSelectedRelIndex] = useState(null);
-              const [selectedNodeId, setSelectedNodeId] = useState(null);
+/* =========================
+   CLAUSE RELATIONSHIPS
+========================= */
 
-              // Strict data isolation
-              useEffect(() => {
-                if (!fileId) {
-                  setRelationshipsData(null);
-                  setSelectedRelIndex(null);
-                  setSelectedNodeId(null);
-                  setLoading(false);
-                  setError(null);
-                  return undefined;
-                }
+const RELATIONSHIP_TYPES = {
+  OVERRIDE: {
+    label: "Override",
+    color: "#dc2626",
+    bgColor: "rgba(220, 38, 38, 0.08)",
+    borderColor: "rgba(220, 38, 38, 0.28)",
+    badgeColor: "#b91c1c",
+    icon: "⚠️",
+    dashed: false,
+    description: "This clause supersedes, invalidates, or takes precedence over another clause.",
+  },
+  EXCEPTION: {
+    label: "Exception",
+    color: "#9333ea",
+    bgColor: "rgba(147, 51, 234, 0.08)",
+    borderColor: "rgba(147, 51, 234, 0.28)",
+    badgeColor: "#7e22ce",
+    icon: "⚡",
+    dashed: true,
+    description: "This clause carves out an exception or exemption from general contractual rules.",
+  },
+  DEPENDENCY: {
+    label: "Dependency",
+    color: "#d97706",
+    bgColor: "rgba(217, 119, 6, 0.08)",
+    borderColor: "rgba(217, 119, 6, 0.28)",
+    badgeColor: "#b45309",
+    icon: "🔗",
+    dashed: true,
+    description: "This clause depends on, requires prior completion of, or is conditioned upon another clause.",
+  },
+  CONDITION: {
+    label: "Condition",
+    color: "#059669",
+    bgColor: "rgba(5, 150, 105, 0.08)",
+    borderColor: "rgba(5, 150, 105, 0.28)",
+    badgeColor: "#047857",
+    icon: "⚖️",
+    dashed: false,
+    description: "Imposes prerequisites or legal triggers before rights or obligations take effect.",
+  },
+  MODIFICATION: {
+    label: "Modification",
+    color: "#db2777",
+    bgColor: "rgba(219, 39, 119, 0.08)",
+    borderColor: "rgba(219, 39, 119, 0.28)",
+    badgeColor: "#be185d",
+    icon: "✏️",
+    dashed: false,
+    description: "Amends, restricts, or extends terms established elsewhere in the contract.",
+  },
+  REFERENCE: {
+    label: "Reference",
+    color: "#2563eb",
+    bgColor: "rgba(37, 99, 235, 0.08)",
+    borderColor: "rgba(37, 99, 235, 0.28)",
+    badgeColor: "#1d4ed8",
+    icon: "↗️",
+    dashed: false,
+    description: "Directly cites or cross-references another provision for context or definitions.",
+  },
+  SUBCLAUSE: {
+    label: "Subclause",
+    color: "#0284c7",
+    bgColor: "rgba(2, 132, 199, 0.08)",
+    borderColor: "rgba(2, 132, 199, 0.28)",
+    badgeColor: "#0369a1",
+    icon: "↳",
+    dashed: false,
+    description: "Hierarchical sub-provision subordinate to a primary clause.",
+  },
+  DEFINITION: {
+    label: "Definition",
+    color: "#475569",
+    bgColor: "rgba(71, 85, 105, 0.08)",
+    borderColor: "rgba(71, 85, 105, 0.28)",
+    badgeColor: "#334155",
+    icon: "📖",
+    dashed: false,
+    description: "Provides a defined term or legal interpretation applied across the agreement.",
+  },
+};
 
-                let isCancelled = false;
+function resolveClauseData(clauseId, clausesList = []) {
+  if (!clauseId) return null;
+  const strId = String(clauseId).trim();
+  const safeList = Array.isArray(clausesList) ? clausesList : [];
 
-                // 1. Immediately clear old relationship state
-                setRelationshipsData(null);
-                setSelectedRelIndex(null);
-                setSelectedNodeId(null);
-                setError(null);
-                setLoading(true);
+  const matched = safeList.find((c) => {
+    if (!c) return false;
+    if (String(c.clause_id) === strId || String(c.id) === strId) return true;
+    if (c.clause_number && String(c.clause_number).trim() === strId) return true;
+    const stripped = strId.replace(/^clause[_-]/i, "");
+    if (c.order !== undefined && String(c.order) === stripped) return true;
+    if (c.clause_number && String(c.clause_number).trim() === stripped) return true;
+    return false;
+  });
 
-                // 2. Fetch relationships for new fileId
-                getContractRelationships(fileId)
-                  .then((data) => {
-                    // 3. Ignore stale responses
-                    if (isCancelled) return;
+  if (matched) {
+    const num = matched.clause_number ? `Clause ${matched.clause_number}` : null;
+    const rawTitle = matched.title || matched.category || `Clause ${strId}`;
+    return {
+      id: strId,
+      resolved: true,
+      title: rawTitle,
+      number: matched.clause_number || null,
+      displayLabel: num ? `${num}: ${rawTitle}` : rawTitle,
+      shortLabel: num || (rawTitle.length > 18 ? rawTitle.slice(0, 16) + "..." : rawTitle),
+      category: matched.category || "General clause",
+      risk: String(matched.risk || "unknown").toLowerCase(),
+      clauseText: matched.clauseText || matched.text || "",
+      explanation: matched.explanation || "",
+      score: matched.score,
+    };
+  }
 
-                    // 4. Verify returned data.file_id matches current fileId
-                    if (data && (String(data.file_id) === String(fileId) || !data.file_id)) {
-                      setRelationshipsData(data);
+  const cleanId = strId.replace(/^clause[_-]/i, "Clause ");
+  return {
+    id: strId,
+    resolved: false,
+    title: cleanId,
+    number: null,
+    displayLabel: cleanId,
+    shortLabel: cleanId.length > 18 ? cleanId.slice(0, 15) + "..." : cleanId,
+    category: "Referenced Section",
+    risk: "unknown",
+    clauseText: "",
+    explanation: "Referenced provision in this agreement.",
+    score: undefined,
+  };
+}
+
+class ClauseRelErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ClauseRelationships error caught by boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="clause-rel-container">
+          <div className="clause-rel-error-card">
+            <AlertCircle size={28} />
+            <strong>Unable to render clause relationships</strong>
+            <span>
+              {this.state.error?.message || "An unexpected error occurred while mapping relationships."}
+            </span>
+            <button
+              type="button"
+              className="clause-rel-retry-btn"
+              onClick={() => this.setState({ hasError: false, error: null })}
+            >
+              Reset View
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ClauseRelationships({ fileId, clauses = [], onSelectClause }) {
+  const safeClauses = Array.isArray(clauses) ? clauses : [];
+  const [relationshipsData, setRelationshipsData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRelIndex, setSelectedRelIndex] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+  // Strict data isolation
+  useEffect(() => {
+    if (!fileId) {
+      setRelationshipsData(null);
+      setSelectedRelIndex(null);
+      setSelectedNodeId(null);
+      setLoading(false);
+      setError(null);
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    // 1. Immediately clear old relationship state
+    setRelationshipsData(null);
+    setSelectedRelIndex(null);
+    setSelectedNodeId(null);
+    setError(null);
+    setLoading(true);
+
+    // 2. Fetch relationships for new fileId
+    getContractRelationships(fileId)
+      .then((data) => {
+        // 3. Ignore stale responses
+        if (isCancelled) return;
+
+        // 4. Verify returned data matches current fileId or handle empty/null response
+        if (data && (String(data.file_id) === String(fileId) || !data.file_id)) {
+          setRelationshipsData(data);
+        } else if (data === null || data === undefined) {
+          setRelationshipsData({ relationships: [] });
+        } else {
+          setRelationshipsData(data || { relationships: [] });
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error("Error loading clause relationships:", err);
+        setError(
+          err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load clause relationships."
+        );
+        setLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [fileId]);
+
+  const handleRetry = () => {
+    if (!fileId) return;
+    setLoading(true);
+    setError(null);
+    getContractRelationships(fileId)
+      .then((data) => {
+        setRelationshipsData(data || { relationships: [] });
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(
+          err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load clause relationships."
+        );
+        setLoading(false);
+      });
+  };
+
+  const rawRelationships = Array.isArray(relationshipsData?.relationships)
+    ? relationshipsData.relationships.filter((r) => r && typeof r === "object")
+    : Array.isArray(relationshipsData)
+      ? relationshipsData.filter((r) => r && typeof r === "object")
+      : [];
+
+  // Available types in current data
+  const availableTypes = [
+    ...new Set(
+      rawRelationships.map((r) => (r.relationship_type || "").toUpperCase()).filter(Boolean)
+    ),
+  ];
+
+  // Filtered relationships
+  const typeFiltered =
+    typeFilter === "all"
+      ? rawRelationships
+      : rawRelationships.filter(
+        (r) => (r.relationship_type || "").toUpperCase() === typeFilter.toUpperCase()
+      );
+
+  const visibleRelationships = typeFiltered.filter((r) => {
+    if (!r) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const src = resolveClauseData(r.source_clause_id, safeClauses);
+    const tgt = resolveClauseData(r.target_clause_id, safeClauses);
+    const relTypeStr = String(r.relationship_type || "").toLowerCase();
+    const evidenceStr = String(r.evidence || "").toLowerCase();
+    const srcTitleStr = String(src?.title || "").toLowerCase();
+    const tgtTitleStr = String(tgt?.title || "").toLowerCase();
+    return (
+      relTypeStr.includes(q) ||
+      evidenceStr.includes(q) ||
+      srcTitleStr.includes(q) ||
+      tgtTitleStr.includes(q)
+    );
+  });
+
+  // Collect unique nodes for graph
+  const uniqueNodeIds = [];
+  visibleRelationships.forEach((r) => {
+    if (r.source_clause_id && !uniqueNodeIds.includes(r.source_clause_id)) {
+      uniqueNodeIds.push(r.source_clause_id);
+    }
+    if (r.target_clause_id && !uniqueNodeIds.includes(r.target_clause_id)) {
+      uniqueNodeIds.push(r.target_clause_id);
+    }
+  });
+
+  // Also include clauses referenced in evidence if target_clause_id is missing
+  visibleRelationships.forEach((r) => {
+    if (!r.target_clause_id && r.evidence) {
+      const match = String(r.evidence).match(/\b(?:clause|section|article)\s*(\d+)/i);
+      if (match) {
+        const foundClause = safeClauses.find(
+          (c) => String(c.clause_number) === match[1] || String(c.order) === match[1]
+        );
+        if (foundClause) {
+          const idToAdd = foundClause.clause_id || foundClause.id || `clause-${match[1]}`;
+          if (!uniqueNodeIds.includes(idToAdd)) {
+            uniqueNodeIds.push(idToAdd);
+          }
+        }
+      }
+    }
+  });
+
+  const graphNodes = uniqueNodeIds
+    .map((id) => resolveClauseData(id, safeClauses))
+    .filter((node) => Boolean(node && node.id));
+
+  // Helper to resolve target node ID for relationships
+  const resolveRelationshipTarget = (rel, allGraphNodes = []) => {
+    if (!rel) return null;
+    const srcId = String(rel.source_clause_id || "").trim();
+
+    // 1. Explicit target_clause_id match
+    if (rel.target_clause_id) {
+      const rawTgt = String(rel.target_clause_id).trim();
+      const match = allGraphNodes.find(
+        (n) =>
+          n.id === rawTgt ||
+          String(n.number) === rawTgt ||
+          n.id.replace(/^clause[_-]/i, "") === rawTgt.replace(/^clause[_-]/i, "")
+      );
+      if (match) return match.id;
+      return rawTgt;
+    }
+
+    // 2. Evidence text mentioning another clause in the graph
+    const evidence = String(rel.evidence || "").toLowerCase();
+    for (const node of allGraphNodes) {
+      if (node.id === srcId) continue;
+      const cleanId = node.id.replace(/^clause[_-]/i, "");
+      const num = node.number ? String(node.number) : null;
+      if (
+        (num &&
+          (evidence.includes(`clause ${num}`) ||
+            evidence.includes(`section ${num}`) ||
+            evidence.includes(`article ${num}`))) ||
+        evidence.includes(node.id.toLowerCase()) ||
+        (cleanId &&
+          (evidence.includes(`clause ${cleanId}`) ||
+            evidence.includes(`section ${cleanId}`)))
+      ) {
+        return node.id;
+      }
+    }
+
+    // 3. In a 2-node graph, connect to the other node
+    const otherNodes = allGraphNodes.filter((n) => n.id !== srcId);
+    if (otherNodes.length === 1) {
+      return otherNodes[0].id;
+    }
+
+    // 4. In a multi-node graph, fallback to first other node
+    if (otherNodes.length > 0) {
+      return otherNodes[0].id;
+    }
+
+    // 5. Single isolated node -> self
+    return srcId;
+  };
+
+  // Compute node coordinates on elliptical canvas
+  const canvasWidth = 760;
+  const canvasHeight = 470;
+  const cx = canvasWidth / 2;
+  const cy = canvasHeight / 2;
+  const rx = Math.min(275, canvasWidth * 0.38);
+  const ry = Math.min(160, canvasHeight * 0.35);
+
+  const nodeCoords = {};
+  const totalNodes = graphNodes.length;
+  graphNodes.forEach((node, idx) => {
+    if (!node || !node.id) return;
+    if (totalNodes === 1) {
+      nodeCoords[node.id] = { x: cx, y: cy, angle: 0 };
+    } else if (totalNodes === 2) {
+      nodeCoords[node.id] = {
+        x: idx === 0 ? cx - 180 : cx + 180,
+        y: cy,
+        angle: idx === 0 ? Math.PI : 0,
+      };
+    } else {
+      const angle = (2 * Math.PI * idx) / totalNodes - Math.PI / 2;
+      nodeCoords[node.id] = {
+        x: cx + rx * Math.cos(angle),
+        y: cy + ry * Math.sin(angle),
+        angle,
+      };
+    }
+  });
+
+  const getNodeCoord = (clauseId) => {
+    if (!clauseId) return null;
+    const str = String(clauseId).trim();
+    if (nodeCoords[str]) return nodeCoords[str];
+    const stripped = str.replace(/^clause[_-]/i, "");
+    for (const [key, val] of Object.entries(nodeCoords)) {
+      if (key === stripped || key.replace(/^clause[_-]/i, "") === stripped) {
+        return val;
+      }
+    }
+    return null;
+  };
+
+  // Group relationships by connected pair to prevent overlapping edges
+  const pairCounts = {};
+  const pairIndices = [];
+  visibleRelationships.forEach((rel) => {
+    const tgtId = resolveRelationshipTarget(rel, graphNodes);
+    const srcId = rel.source_clause_id;
+    const pairKey = [srcId, tgtId].sort().join("---");
+    const idxInPair = pairCounts[pairKey] || 0;
+    pairIndices.push(idxInPair);
+    pairCounts[pairKey] = idxInPair + 1;
+  });
+
+  // Selected relationship or node
+  const selectedRel =
+    selectedRelIndex !== null && visibleRelationships[selectedRelIndex]
+      ? visibleRelationships[selectedRelIndex]
+      : null;
+
+  const selectedNode =
+    selectedNodeId ? resolveClauseData(selectedNodeId, safeClauses) : null;
+
+  const selectedNodeRels = selectedNode
+    ? rawRelationships.filter((r) => {
+      if (!r) return false;
+      const tgtId = resolveRelationshipTarget(r, graphNodes);
+      return r.source_clause_id === selectedNode.id || tgtId === selectedNode.id;
+    })
+    : [];
+
+  const getRiskBadgeColor = (risk) => {
+    switch (String(risk).toLowerCase()) {
+      case "high":
+        return "#ef4444";
+      case "medium":
+        return "#f59e0b";
+      case "low":
+        return "#10b981";
+      default:
+        return "#94a3b8";
+    }
+  };
+
+  return (
+    <div className="clause-rel-container">
+      {/* Toolbar */}
+      <section className="clause-rel-toolbar" aria-label="Relationship filters">
+        <div className="clause-rel-search">
+          <Search size={15} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter by clause, term, or evidence text..."
+            aria-label="Filter relationships"
+          />
+        </div>
+
+        <div className="clause-rel-type-pills" role="radiogroup" aria-label="Relationship type filter">
+          <button
+            type="button"
+            className={`clause-rel-type-pill ${typeFilter === "all" ? "active" : ""}`}
+            onClick={() => setTypeFilter("all")}
+          >
+            All Types
+            <span className="clause-rel-pill-badge">{rawRelationships.length}</span>
+          </button>
+          {availableTypes.map((type) => {
+            const cfg = RELATIONSHIP_TYPES[type] || { label: type, color: "#64748b" };
+            const count = rawRelationships.filter(
+              (r) => (r.relationship_type || "").toUpperCase() === type
+            ).length;
+            return (
+              <button
+                key={type}
+                type="button"
+                className={`clause-rel-type-pill ${typeFilter === type ? "active" : ""}`}
+                style={{
+                  "--pill-color": cfg.color,
+                }}
+                onClick={() => setTypeFilter(typeFilter === type ? "all" : type)}
+              >
+                <span>{cfg.icon}</span>
+                <span>{cfg.label}</span>
+                <span className="clause-rel-pill-badge">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <div className="clause-rel-loading-card">
+          <Loader2 size={28} className="spin" />
+          <strong>Mapping Clause Relationships</strong>
+          <span>Extracting cross-references, dependencies, and overrides from this contract...</span>
+        </div>
+      ) : error ? (
+        <div className="clause-rel-error-card">
+          <AlertCircle size={28} />
+          <strong>Failed to load relationships</strong>
+          <span>{error}</span>
+          <button type="button" className="clause-rel-retry-btn" onClick={handleRetry}>
+            Try Again
+          </button>
+        </div>
+      ) : !fileId ? (
+        <div className="clause-rel-empty-card">
+          <div className="clause-rel-empty-icon">
+            <Network size={26} />
+          </div>
+          <span className="card-label">NO CONTRACT SELECTED</span>
+          <h3>Select a contract to view relationships</h3>
+          <p>Choose an analyzed contract from your Contracts Library to map out cross-clause dependencies.</p>
+        </div>
+      ) : rawRelationships.length === 0 ? (
+        <div className="clause-rel-empty-card">
+          <div className="clause-rel-empty-icon">
+            <Network size={26} />
+          </div>
+          <span className="card-label">RELATIONSHIP ANALYSIS</span>
+          <h3>No clause relationships detected</h3>
+          <p>
+            This agreement contains independent provisions with no explicit cross-references,
+            overrides, or conditional dependencies detected between clauses.
+          </p>
+          <button
+            type="button"
+            className="clause-rel-return-btn"
+            onClick={() => onSelectClause && onSelectClause(null)}
+          >
+            Return to Clause List
+          </button>
+        </div>
+      ) : (
+        <div className="clause-rel-layout">
+          {/* Graph Visualizer Panel */}
+          <div className="clause-rel-graph-panel">
+            <div className="clause-rel-graph-header">
+              <div>
+                <span className="card-label">DEPENDENCY GRAPH</span>
+                <h3>
+                  {visibleRelationships.length}{" "}
+                  {visibleRelationships.length === 1 ? "Connection" : "Connections"} ·{" "}
+                  {graphNodes.length} Linked Clauses
+                </h3>
+              </div>
+              <div className="clause-rel-graph-actions">
+                {(selectedRelIndex !== null || selectedNodeId !== null) && (
+                  <button
+                    type="button"
+                    className="clause-rel-reset-btn"
+                    onClick={() => {
+                      setSelectedRelIndex(null);
+                      setSelectedNodeId(null);
+                    }}
+                  >
+                    Reset view
+                  </button>
+                )}
+                <span className="clause-rel-hint">Click node or line to inspect</span>
+              </div>
+            </div>
+
+            <div className="clause-rel-svg-wrap">
+              <svg
+                viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+                className="clause-rel-svg"
+                onClick={(e) => {
+                  if (e.target.tagName === "svg") {
+                    setSelectedRelIndex(null);
+                    setSelectedNodeId(null);
+                  }
+                }}
+              >
+                {/* SVG Marker Definitions for Directed Arrowheads */}
+                <defs>
+                  {Object.entries(RELATIONSHIP_TYPES).map(([typeKey, cfg]) => (
+                    <marker
+                      key={typeKey}
+                      id={`rel-arrow-${typeKey}`}
+                      viewBox="0 0 10 10"
+                      refX="8"
+                      refY="5"
+                      markerWidth="7"
+                      markerHeight="7"
+                      orient="auto"
+                    >
+                      <path d="M 1 2 L 8 5 L 1 8 z" fill={cfg.color || "#7c3aed"} />
+                    </marker>
+                  ))}
+                  <marker
+                    id="rel-arrow-DEFAULT"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto"
+                  >
+                    <path d="M 1 2 L 8 5 L 1 8 z" fill="#7c3aed" />
+                  </marker>
+                  <filter id="rel-glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#8f744f" floodOpacity="0.3" />
+                  </filter>
+                  <filter id="edge-label-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#000000" floodOpacity="0.12" />
+                  </filter>
+                </defs>
+
+                {/* Center circle guide */}
+                <g opacity="0.25">
+                  <circle cx={cx} cy={cy} r={rx} fill="none" stroke="#e2ddd4" strokeDasharray="3,6" />
+                </g>
+
+                {/* Connection Edges */}
+                {visibleRelationships.map((rel, idx) => {
+                  const src = getNodeCoord(rel.source_clause_id);
+                  const tgtId = resolveRelationshipTarget(rel, graphNodes);
+                  const tgt = getNodeCoord(tgtId);
+                  const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
+                  const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+
+                  if (!src) return null;
+
+                  const isSelfLoop = !tgt || rel.source_clause_id === tgtId || (src.x === tgt.x && src.y === tgt.y);
+
+                  let pathD = "";
+                  let labelPos = { x: src.x, y: src.y - 45 };
+
+                  if (!isSelfLoop && tgt) {
+                    const pairKey = [rel.source_clause_id, tgtId].sort().join("---");
+                    const totalInPair = pairCounts[pairKey] || 1;
+                    const idxInPair = pairIndices[idx] || 0;
+
+                    let offset = 0;
+                    if (totalInPair === 1) offset = -22;
+                    else if (totalInPair === 2) offset = idxInPair === 0 ? -45 : 45;
+                    else if (totalInPair === 3) offset = idxInPair === 0 ? -55 : idxInPair === 1 ? 0 : 55;
+                    else offset = ((idxInPair - (totalInPair - 1) / 2) / ((totalInPair - 1) / 2)) * 75;
+
+                    // Consistent canonical orientation for control point offset
+                    const [canonSrcId, canonTgtId] = [rel.source_clause_id, tgtId].slice().sort();
+                    const canonSrc = getNodeCoord(canonSrcId) || src;
+                    const canonTgt = getNodeCoord(canonTgtId) || tgt;
+                    const cdx = canonTgt.x - canonSrc.x;
+                    const cdy = canonTgt.y - canonSrc.y;
+                    const cdist = Math.hypot(cdx, cdy) || 1;
+                    const cnx = -cdy / cdist;
+                    const cny = cdx / cdist;
+
+                    const midX = (src.x + tgt.x) / 2;
+                    const midY = (src.y + tgt.y) / 2;
+                    const cpx = midX + cnx * offset;
+                    const cpy = midY + cny * offset;
+
+                    // Calculate boundary exits so arrowhead and lines are outside the 110x34px node pills
+                    const hw = 58;
+                    const hh = 20;
+
+                    const s_dx = cpx - src.x;
+                    const s_dy = cpy - src.y;
+                    const s_angle = Math.atan2(s_dy, s_dx);
+                    const s_r = (hw * hh) / Math.sqrt((hh * Math.cos(s_angle)) ** 2 + (hw * Math.sin(s_angle)) ** 2);
+                    const startX = src.x + Math.cos(s_angle) * (s_r + 2);
+                    const startY = src.y + Math.sin(s_angle) * (s_r + 2);
+
+                    const t_dx = tgt.x - cpx;
+                    const t_dy = tgt.y - cpy;
+                    const t_angle = Math.atan2(t_dy, t_dx);
+                    const t_r = (hw * hh) / Math.sqrt((hh * Math.cos(t_angle)) ** 2 + (hw * Math.sin(t_angle)) ** 2);
+                    const endX = tgt.x - Math.cos(t_angle) * (t_r + 6);
+                    const endY = tgt.y - Math.sin(t_angle) * (t_r + 6);
+
+                    if (Number.isFinite(startX) && Number.isFinite(startY) && Number.isFinite(endX) && Number.isFinite(endY)) {
+                      pathD = offset === 0
+                        ? `M ${startX.toFixed(1)} ${startY.toFixed(1)} L ${endX.toFixed(1)} ${endY.toFixed(1)}`
+                        : `M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${cpx.toFixed(1)} ${cpy.toFixed(1)} ${endX.toFixed(1)} ${endY.toFixed(1)}`;
+                      labelPos = {
+                        x: 0.25 * startX + 0.5 * cpx + 0.25 * endX,
+                        y: 0.25 * startY + 0.5 * cpy + 0.25 * endY,
+                      };
                     } else {
-                      console.warn("Mismatched relationship data file_id:", data?.file_id, "expected:", fileId);
+                      pathD = `M ${src.x} ${src.y} L ${tgt.x} ${tgt.y}`;
+                      labelPos = { x: midX, y: midY };
                     }
-                    setLoading(false);
-                  })
-                  .catch((err) => {
-                    if (isCancelled) return;
-                    console.error("Error loading clause relationships:", err);
-                    setError(
-                      err?.response?.data?.detail ||
-                        err?.response?.data?.message ||
-                        err?.message ||
-                        "Unable to load clause relationships."
-                    );
-                    setLoading(false);
-                  });
+                  } else {
+                    // Outward self-loop positioned clearly above the node pill
+                    const loopH = 48;
+                    const loopStartX = src.x - 22;
+                    const loopStartY = src.y - 17;
+                    const loopEndX = src.x + 22;
+                    const loopEndY = src.y - 17;
+                    pathD = `M ${loopStartX} ${loopStartY} C ${src.x - 40} ${src.y - 17 - loopH}, ${src.x + 40} ${src.y - 17 - loopH}, ${loopEndX} ${loopEndY}`;
+                    labelPos = { x: src.x, y: src.y - 17 - loopH + 4 };
+                  }
 
-                return () => {
-                  isCancelled = true;
-                };
-              }, [fileId]);
+                  const isSelected = selectedRelIndex === idx;
+                  const isConnectedToSelectedNode =
+                    selectedNodeId &&
+                    (rel.source_clause_id === selectedNodeId || tgtId === selectedNodeId);
+                  const isHighlighted = isSelected || isConnectedToSelectedNode;
+                  const isDimmed =
+                    (selectedRelIndex !== null || selectedNodeId !== null) &&
+                    !isHighlighted;
 
-              const handleRetry = () => {
-                if (!fileId) return;
-                setLoading(true);
-                setError(null);
-                getContractRelationships(fileId)
-                  .then((data) => {
-                    if (data && (String(data.file_id) === String(fileId) || !data.file_id)) {
-                      setRelationshipsData(data);
-                    }
-                    setLoading(false);
-                  })
-                  .catch((err) => {
-                    setError(err?.response?.data?.detail || "Unable to load clause relationships.");
-                    setLoading(false);
-                  });
-              };
+                  const labelText = `${cfg.icon} ${cfg.label}`;
+                  const labelWidth = Math.max(78, labelText.length * 6.5 + 16);
 
-              const rawRelationships = relationshipsData?.relationships || [];
-
-              // Available types in current data
-              const availableTypes = [
-                ...new Set(
-                  rawRelationships.map((r) => (r.relationship_type || "").toUpperCase()).filter(Boolean)
-                ),
-              ];
-
-              // Filtered relationships
-              const typeFiltered =
-                typeFilter === "all"
-                  ? rawRelationships
-                  : rawRelationships.filter(
-                      (r) => (r.relationship_type || "").toUpperCase() === typeFilter.toUpperCase()
-                    );
-
-              const visibleRelationships = typeFiltered.filter((r) => {
-                if (!searchQuery.trim()) return true;
-                const q = searchQuery.toLowerCase();
-                const src = resolveClauseData(r.source_clause_id, clauses);
-                const tgt = resolveClauseData(r.target_clause_id, clauses);
-                return (
-                  (r.relationship_type && r.relationship_type.toLowerCase().includes(q)) ||
-                  (r.evidence && r.evidence.toLowerCase().includes(q)) ||
-                  (src?.title && src.title.toLowerCase().includes(q)) ||
-                  (tgt?.title && tgt.title.toLowerCase().includes(q))
-                );
-              });
-
-              // Collect unique nodes for graph
-              const uniqueNodeIds = [];
-              visibleRelationships.forEach((r) => {
-                if (r.source_clause_id && !uniqueNodeIds.includes(r.source_clause_id)) {
-                  uniqueNodeIds.push(r.source_clause_id);
-                }
-                if (r.target_clause_id && !uniqueNodeIds.includes(r.target_clause_id)) {
-                  uniqueNodeIds.push(r.target_clause_id);
-                }
-              });
-
-              const graphNodes = uniqueNodeIds.map((id) => resolveClauseData(id, clauses));
-
-              // Compute node coordinates on elliptical canvas
-              const canvasWidth = 760;
-              const canvasHeight = 470;
-              const cx = canvasWidth / 2;
-              const cy = canvasHeight / 2;
-              const rx = Math.min(275, canvasWidth * 0.38);
-              const ry = Math.min(160, canvasHeight * 0.35);
-
-              const nodeCoords = {};
-              const totalNodes = graphNodes.length;
-              graphNodes.forEach((node, idx) => {
-                if (totalNodes === 1) {
-                  nodeCoords[node.id] = { x: cx, y: cy, angle: 0 };
-                } else if (totalNodes === 2) {
-                  nodeCoords[node.id] = {
-                    x: idx === 0 ? cx - 180 : cx + 180,
-                    y: cy,
-                    angle: idx === 0 ? Math.PI : 0,
-                  };
-                } else {
-                  const angle = (2 * Math.PI * idx) / totalNodes - Math.PI / 2;
-                  nodeCoords[node.id] = {
-                    x: cx + rx * Math.cos(angle),
-                    y: cy + ry * Math.sin(angle),
-                    angle,
-                  };
-                }
-              });
-
-              // Selected relationship or node
-              const selectedRel =
-                selectedRelIndex !== null && visibleRelationships[selectedRelIndex]
-                  ? visibleRelationships[selectedRelIndex]
-                  : null;
-
-              const selectedNode =
-                selectedNodeId ? resolveClauseData(selectedNodeId, clauses) : null;
-
-              const selectedNodeRels = selectedNode
-                ? rawRelationships.filter(
-                    (r) =>
-                      r.source_clause_id === selectedNode.id ||
-                      r.target_clause_id === selectedNode.id
-                  )
-                : [];
-
-              const getRiskBadgeColor = (risk) => {
-                switch (String(risk).toLowerCase()) {
-                  case "high":
-                    return "#ef4444";
-                  case "medium":
-                    return "#f59e0b";
-                  case "low":
-                    return "#10b981";
-                  default:
-                    return "#94a3b8";
-                }
-              };
-
-              return (
-                <div className="clause-rel-container">
-                  {/* Toolbar */}
-                  <section className="clause-rel-toolbar" aria-label="Relationship filters">
-                    <div className="clause-rel-search">
-                      <Search size={15} />
-                      <input
-                        type="search"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Filter by clause, term, or evidence text..."
-                        aria-label="Filter relationships"
+                  return (
+                    <g key={`edge-${idx}`} className="clause-rel-edge-group">
+                      {/* Transparent wide stroke for easy clicking/hover */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth="22"
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          setSelectedRelIndex(idx);
+                          setSelectedNodeId(null);
+                        }}
                       />
-                    </div>
-
-                    <div className="clause-rel-type-pills" role="radiogroup" aria-label="Relationship type filter">
-                      <button
-                        type="button"
-                        className={`clause-rel-type-pill ${typeFilter === "all" ? "active" : ""}`}
-                        onClick={() => setTypeFilter("all")}
+                      {/* Visible connection path */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke={cfg.color || "#7c3aed"}
+                        strokeWidth={isHighlighted ? 3.5 : 2.6}
+                        strokeDasharray={cfg.dashed ? "6,4" : "none"}
+                        opacity={isDimmed ? 0.2 : 1}
+                        markerEnd={`url(#rel-arrow-${typeKey})`}
+                        style={{
+                          transition: "stroke-width 0.2s, opacity 0.2s",
+                          pointerEvents: "none",
+                        }}
+                      />
+                      {/* Edge Label Badge */}
+                      <g
+                        className="clause-rel-edge-label"
+                        transform={`translate(${labelPos.x.toFixed(1)}, ${labelPos.y.toFixed(1)})`}
+                        style={{ cursor: "pointer", opacity: isDimmed ? 0.25 : 1 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRelIndex(idx);
+                          setSelectedNodeId(null);
+                        }}
                       >
-                        All Types
-                        <span className="clause-rel-pill-badge">{rawRelationships.length}</span>
-                      </button>
-                      {availableTypes.map((type) => {
-                        const cfg = RELATIONSHIP_TYPES[type] || { label: type, color: "#64748b" };
-                        const count = rawRelationships.filter(
-                          (r) => (r.relationship_type || "").toUpperCase() === type
-                        ).length;
+                        <rect
+                          x={(-labelWidth / 2).toFixed(1)}
+                          y="-11"
+                          width={labelWidth}
+                          height="22"
+                          rx="11"
+                          fill="#ffffff"
+                          stroke={isHighlighted ? cfg.color : "#d5d1c8"}
+                          strokeWidth={isHighlighted ? 2.2 : 1.2}
+                          filter="url(#edge-label-shadow)"
+                        />
+                        <text
+                          x="0"
+                          y="3.5"
+                          textAnchor="middle"
+                          fontSize="9.5"
+                          fontWeight={isHighlighted ? "700" : "600"}
+                          fill={cfg.badgeColor || cfg.color || "#334155"}
+                          style={{ userSelect: "none" }}
+                        >
+                          {labelText}
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })}
+
+                {/* Clause Nodes */}
+                {graphNodes.map((node) => {
+                  const pos = nodeCoords[node.id];
+                  if (!pos) return null;
+
+                  const isSelected = selectedNodeId === node.id;
+                  const isConnectedToSelectedRel =
+                    selectedRel &&
+                    (selectedRel.source_clause_id === node.id ||
+                      selectedRel.target_clause_id === node.id);
+                  const isHighlighted = isSelected || isConnectedToSelectedRel;
+                  const isDimmed =
+                    (selectedNodeId !== null || selectedRel !== null) &&
+                    !isHighlighted;
+
+                  const riskColor = getRiskBadgeColor(node.risk);
+
+                  return (
+                    <g
+                      key={`node-${node.id}`}
+                      transform={`translate(${pos.x}, ${pos.y})`}
+                      className={`clause-rel-node ${isHighlighted ? "highlighted" : ""} ${isDimmed ? "dimmed" : ""
+                        }`}
+                      style={{ cursor: "pointer", transition: "all 0.2s" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedNodeId(selectedNodeId === node.id ? null : node.id);
+                        setSelectedRelIndex(null);
+                      }}
+                    >
+                      {/* Node Box Pill */}
+                      <rect
+                        x="-55"
+                        y="-17"
+                        width="110"
+                        height="34"
+                        rx="17"
+                        fill={isHighlighted ? "#19191f" : "#ffffff"}
+                        stroke={isHighlighted ? "#8f744f" : "#d9d6ce"}
+                        strokeWidth={isHighlighted ? 2.4 : 1.2}
+                        filter={isHighlighted ? "url(#rel-glow)" : "none"}
+                      />
+                      {/* Risk Dot */}
+                      <circle
+                        cx="-42"
+                        cy="0"
+                        r="4"
+                        fill={riskColor}
+                      />
+                      {/* Section Title */}
+                      <text
+                        x="-32"
+                        y="3.5"
+                        fontSize="9.5"
+                        fontWeight={isHighlighted ? "700" : "600"}
+                        fill={isHighlighted ? "#ffffff" : "#2a2a32"}
+                        textAnchor="start"
+                      >
+                        {node.shortLabel}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+
+            {/* Visual Legend */}
+            <div className="clause-rel-legend">
+              <span className="clause-rel-legend-title">Types:</span>
+              <div className="clause-rel-legend-items">
+                {Object.entries(RELATIONSHIP_TYPES).map(([typeKey, cfg]) => {
+                  const hasThisType = availableTypes.includes(typeKey);
+                  return (
+                    <div
+                      key={typeKey}
+                      className={`clause-rel-legend-item ${hasThisType ? "active" : "inactive"}`}
+                    >
+                      <span
+                        className="clause-rel-legend-dot"
+                        style={{ background: cfg.color }}
+                      />
+                      <span>{cfg.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Evidence / Details Inspector Panel */}
+          <div className="clause-rel-details-panel">
+            {selectedRel ? (
+              // RELATIONSHIP EVIDENCE VIEW
+              <div className="clause-rel-inspect-content">
+                <div className="clause-rel-inspect-header">
+                  <div className="clause-rel-inspect-badge-row">
+                    {(() => {
+                      const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
+                      const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+                      return (
+                        <span
+                          className="clause-rel-type-tag"
+                          style={{
+                            background: cfg.bgColor,
+                            borderColor: cfg.borderColor,
+                            color: cfg.badgeColor,
+                          }}
+                        >
+                          {cfg.icon} {cfg.label.toUpperCase()}
+                        </span>
+                      );
+                    })()}
+                    <span className="clause-rel-confidence-tag">
+                      {Math.round((selectedRel.confidence ?? 1.0) * 100)}% confidence
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="clause-rel-close-btn"
+                    onClick={() => setSelectedRelIndex(null)}
+                    aria-label="Close details"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+
+                {/* Clause Flow Box */}
+                {(() => {
+                  const src = resolveClauseData(selectedRel.source_clause_id, clauses);
+                  const resolvedTgtId = resolveRelationshipTarget(selectedRel, graphNodes);
+                  const tgt = resolveClauseData(selectedRel.target_clause_id || resolvedTgtId, clauses);
+                  const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
+                  const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+
+                  return (
+                    <div className="clause-rel-flow-container">
+                      <div className="clause-rel-flow-card">
+                        <span className="flow-role">SOURCE CLAUSE</span>
+                        <strong>{src?.displayLabel}</strong>
+                        <div className="flow-meta">
+                          <span>{src?.category}</span>
+                          <span className={`flow-risk ${src?.risk}`}>{src?.risk} risk</span>
+                        </div>
+                      </div>
+
+                      <div className="clause-rel-flow-arrow" style={{ color: cfg.color }}>
+                        <ArrowRight size={18} />
+                        <small>{cfg.label}</small>
+                      </div>
+
+                      <div className="clause-rel-flow-card">
+                        <span className="flow-role">TARGET CLAUSE</span>
+                        <strong>{tgt ? tgt.displayLabel : "Agreement Scope"}</strong>
+                        <div className="flow-meta">
+                          <span>{tgt ? tgt.category : "General provisions"}</span>
+                          {tgt && <span className={`flow-risk ${tgt.risk}`}>{tgt.risk} risk</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Legal Effect Description */}
+                {(() => {
+                  const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
+                  const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+                  return (
+                    <div className="clause-rel-description-box">
+                      <span className="card-label">LEGAL MEANING</span>
+                      <p>{cfg.description}</p>
+                    </div>
+                  );
+                })()}
+
+                {/* Evidence Callout */}
+                <div className="clause-rel-evidence-box">
+                  <div className="clause-rel-evidence-header">
+                    <Sparkles size={14} />
+                    <span>CONTRACT EVIDENCE</span>
+                  </div>
+                  <blockquote>
+                    "{selectedRel.evidence || "Direct cross-reference identified in clause language."}"
+                  </blockquote>
+                </div>
+
+                {/* Action Links */}
+                <div className="clause-rel-actions">
+                  <button
+                    type="button"
+                    className="clause-rel-view-link"
+                    onClick={() => onSelectClause && onSelectClause(selectedRel.source_clause_id)}
+                  >
+                    View Source in Clause List
+                  </button>
+                  {selectedRel.target_clause_id && (
+                    <button
+                      type="button"
+                      className="clause-rel-view-link secondary"
+                      onClick={() => onSelectClause && onSelectClause(selectedRel.target_clause_id)}
+                    >
+                      View Target in Clause List
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : selectedNode ? (
+              // NODE DETAIL VIEW
+              <div className="clause-rel-inspect-content">
+                <div className="clause-rel-inspect-header">
+                  <div>
+                    <span className="card-label">SELECTED CLAUSE</span>
+                    <h3>{selectedNode.displayLabel}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    className="clause-rel-close-btn"
+                    onClick={() => setSelectedNodeId(null)}
+                    aria-label="Close details"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+
+                <div className="clause-rel-node-meta">
+                  <span>{selectedNode.category}</span>
+                  <span className={`clause-explorer-risk ${selectedNode.risk}`}>
+                    {selectedNode.risk} risk
+                  </span>
+                  {selectedNode.score !== undefined && (
+                    <span className="clause-rel-score-badge">Score {selectedNode.score}</span>
+                  )}
+                </div>
+
+                {selectedNode.explanation && (
+                  <div className="clause-rel-node-snippet">
+                    <span className="card-label">EXPLANATION</span>
+                    <p>{selectedNode.explanation}</p>
+                  </div>
+                )}
+
+                {/* Connected Relationships for this node */}
+                <div className="clause-rel-connected-section">
+                  <span className="card-label">
+                    CONNECTED RELATIONSHIPS ({selectedNodeRels.length})
+                  </span>
+
+                  {selectedNodeRels.length > 0 ? (
+                    <div className="clause-rel-connected-list">
+                      {selectedNodeRels.map((rel, i) => {
+                        const isOutgoing = rel.source_clause_id === selectedNode.id;
+                        const resolvedTgtId = resolveRelationshipTarget(rel, graphNodes);
+                        const otherId = isOutgoing
+                          ? (rel.target_clause_id || resolvedTgtId)
+                          : rel.source_clause_id;
+                        const otherClause = resolveClauseData(otherId, clauses);
+                        const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
+                        const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+
                         return (
                           <button
-                            key={type}
+                            key={i}
                             type="button"
-                            className={`clause-rel-type-pill ${typeFilter === type ? "active" : ""}`}
-                            style={{
-                              "--pill-color": cfg.color,
-                            }}
-                            onClick={() => setTypeFilter(typeFilter === type ? "all" : type)}
-                          >
-                            <span>{cfg.icon}</span>
-                            <span>{cfg.label}</span>
-                            <span className="clause-rel-pill-badge">{count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  {/* Main Content Area */}
-                  {loading ? (
-                    <div className="clause-rel-loading-card">
-                      <Loader2 size={28} className="spin" />
-                      <strong>Mapping Clause Relationships</strong>
-                      <span>Extracting cross-references, dependencies, and overrides from this contract...</span>
-                    </div>
-                  ) : error ? (
-                    <div className="clause-rel-error-card">
-                      <AlertCircle size={28} />
-                      <strong>Failed to load relationships</strong>
-                      <span>{error}</span>
-                      <button type="button" className="clause-rel-retry-btn" onClick={handleRetry}>
-                        Try Again
-                      </button>
-                    </div>
-                  ) : !fileId ? (
-                    <div className="clause-rel-empty-card">
-                      <div className="clause-rel-empty-icon">
-                        <Network size={26} />
-                      </div>
-                      <span className="card-label">NO CONTRACT SELECTED</span>
-                      <h3>Select a contract to view relationships</h3>
-                      <p>Choose an analyzed contract from your Contracts Library to map out cross-clause dependencies.</p>
-                    </div>
-                  ) : rawRelationships.length === 0 ? (
-                    <div className="clause-rel-empty-card">
-                      <div className="clause-rel-empty-icon">
-                        <Network size={26} />
-                      </div>
-                      <span className="card-label">RELATIONSHIP ANALYSIS</span>
-                      <h3>No clause relationships detected</h3>
-                      <p>
-                        This agreement contains independent provisions with no explicit cross-references,
-                        overrides, or conditional dependencies detected between clauses.
-                      </p>
-                      <button
-                        type="button"
-                        className="clause-rel-return-btn"
-                        onClick={() => onSelectClause && onSelectClause(null)}
-                      >
-                        Return to Clause List
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="clause-rel-layout">
-                      {/* Graph Visualizer Panel */}
-                      <div className="clause-rel-graph-panel">
-                        <div className="clause-rel-graph-header">
-                          <div>
-                            <span className="card-label">DEPENDENCY GRAPH</span>
-                            <h3>
-                              {visibleRelationships.length}{" "}
-                              {visibleRelationships.length === 1 ? "Connection" : "Connections"} ·{" "}
-                              {graphNodes.length} Linked Clauses
-                            </h3>
-                          </div>
-                          <div className="clause-rel-graph-actions">
-                            {(selectedRelIndex !== null || selectedNodeId !== null) && (
-                              <button
-                                type="button"
-                                className="clause-rel-reset-btn"
-                                onClick={() => {
-                                  setSelectedRelIndex(null);
-                                  setSelectedNodeId(null);
-                                }}
-                              >
-                                Reset view
-                              </button>
-                            )}
-                            <span className="clause-rel-hint">Click node or line to inspect</span>
-                          </div>
-                        </div>
-
-                        <div className="clause-rel-svg-wrap">
-                          <svg
-                            viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
-                            preserveAspectRatio="xMidYMid meet"
-                            className="clause-rel-svg"
-                            onClick={(e) => {
-                              if (e.target.tagName === "svg") {
-                                setSelectedRelIndex(null);
+                            className="clause-rel-connected-item"
+                            onClick={() => {
+                              const relIdx = visibleRelationships.indexOf(rel);
+                              if (relIdx !== -1) {
+                                setSelectedRelIndex(relIdx);
                                 setSelectedNodeId(null);
                               }
                             }}
                           >
-                            {/* SVG Marker Definitions for Directed Arrowheads */}
-                            <defs>
-                              {Object.entries(RELATIONSHIP_TYPES).map(([typeKey, cfg]) => (
-                                <marker
-                                  key={typeKey}
-                                  id={`rel-arrow-${typeKey}`}
-                                  viewBox="0 0 10 10"
-                                  refX="8"
-                                  refY="5"
-                                  markerWidth="6"
-                                  markerHeight="6"
-                                  orient="auto-start-reverse"
-                                >
-                                  <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill={cfg.color} />
-                                </marker>
-                              ))}
-                              <filter id="rel-glow" x="-20%" y="-20%" width="140%" height="140%">
-                                <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#8f744f" floodOpacity="0.3" />
-                              </filter>
-                            </defs>
-
-                            {/* Center circle guide */}
-                            <g opacity="0.25">
-                              <circle cx={cx} cy={cy} r={rx} fill="none" stroke="#e2ddd4" strokeDasharray="3,6" />
-                            </g>
-
-                            {/* Connection Edges */}
-                            {visibleRelationships.map((rel, idx) => {
-                              const src = nodeCoords[rel.source_clause_id];
-                              const tgt = rel.target_clause_id ? nodeCoords[rel.target_clause_id] : null;
-                              const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
-                              const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-
-                              if (!src) return null;
-
-                              let pathD = "";
-                              if (tgt && rel.source_clause_id !== rel.target_clause_id) {
-                                const midX = (src.x + tgt.x) / 2;
-                                const midY = (src.y + tgt.y) / 2;
-                                const cpx = midX + (cx - midX) * 0.42;
-                                const cpy = midY + (cy - midY) * 0.42;
-
-                                const dx = tgt.x - cpx;
-                                const dy = tgt.y - cpy;
-                                const dist = Math.hypot(dx, dy) || 1;
-                                const endX = tgt.x - (dx / dist) * 26;
-                                const endY = tgt.y - (dy / dist) * 26;
-
-                                pathD = `M ${src.x} ${src.y} Q ${cpx} ${cpy} ${endX} ${endY}`;
-                              } else {
-                                const nx = Math.cos(src.angle) * 45;
-                                const ny = Math.sin(src.angle) * 45;
-                                pathD = `M ${src.x - 14} ${src.y} C ${src.x + nx - 20} ${src.y + ny - 20}, ${src.x + nx + 20} ${src.y + ny + 20}, ${src.x + 14} ${src.y}`;
-                              }
-
-                              const isSelected = selectedRelIndex === idx;
-                              const isConnectedToSelectedNode =
-                                selectedNodeId &&
-                                (rel.source_clause_id === selectedNodeId ||
-                                  rel.target_clause_id === selectedNodeId);
-                              const isHighlighted = isSelected || isConnectedToSelectedNode;
-                              const isDimmed =
-                                (selectedRelIndex !== null || selectedNodeId !== null) &&
-                                !isHighlighted;
-
-                              return (
-                                <g key={`edge-${idx}`} className="clause-rel-edge-group">
-                                  {/* Transparent wide stroke for easy clicking/hover */}
-                                  <path
-                                    d={pathD}
-                                    fill="none"
-                                    stroke="transparent"
-                                    strokeWidth="18"
-                                    style={{ cursor: "pointer" }}
-                                    onClick={() => {
-                                      setSelectedRelIndex(idx);
-                                      setSelectedNodeId(null);
-                                    }}
-                                  />
-                                  {/* Visible stroke */}
-                                  <path
-                                    d={pathD}
-                                    fill="none"
-                                    stroke={cfg.color}
-                                    strokeWidth={isHighlighted ? 3.2 : 1.8}
-                                    strokeDasharray={cfg.dashed ? "5,4" : "none"}
-                                    opacity={isDimmed ? 0.14 : isHighlighted ? 1 : 0.72}
-                                    markerEnd={`url(#rel-arrow-${typeKey})`}
-                                    style={{
-                                      transition: "stroke-width 0.2s, opacity 0.2s",
-                                      pointerEvents: "none",
-                                    }}
-                                  />
-                                </g>
-                              );
-                            })}
-
-                            {/* Clause Nodes */}
-                            {graphNodes.map((node) => {
-                              const pos = nodeCoords[node.id];
-                              if (!pos) return null;
-
-                              const isSelected = selectedNodeId === node.id;
-                              const isConnectedToSelectedRel =
-                                selectedRel &&
-                                (selectedRel.source_clause_id === node.id ||
-                                  selectedRel.target_clause_id === node.id);
-                              const isHighlighted = isSelected || isConnectedToSelectedRel;
-                              const isDimmed =
-                                (selectedNodeId !== null || selectedRel !== null) &&
-                                !isHighlighted;
-
-                              const riskColor = getRiskBadgeColor(node.risk);
-
-                              return (
-                                <g
-                                  key={`node-${node.id}`}
-                                  transform={`translate(${pos.x}, ${pos.y})`}
-                                  className={`clause-rel-node ${isHighlighted ? "highlighted" : ""} ${
-                                    isDimmed ? "dimmed" : ""
-                                  }`}
-                                  style={{ cursor: "pointer", transition: "all 0.2s" }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedNodeId(selectedNodeId === node.id ? null : node.id);
-                                    setSelectedRelIndex(null);
-                                  }}
-                                >
-                                  {/* Node Box Pill */}
-                                  <rect
-                                    x="-55"
-                                    y="-17"
-                                    width="110"
-                                    height="34"
-                                    rx="17"
-                                    fill={isHighlighted ? "#19191f" : "#ffffff"}
-                                    stroke={isHighlighted ? "#8f744f" : "#d9d6ce"}
-                                    strokeWidth={isHighlighted ? 2.4 : 1.2}
-                                    filter={isHighlighted ? "url(#rel-glow)" : "none"}
-                                  />
-                                  {/* Risk Dot */}
-                                  <circle
-                                    cx="-42"
-                                    cy="0"
-                                    r="4"
-                                    fill={riskColor}
-                                  />
-                                  {/* Section Title */}
-                                  <text
-                                    x="-32"
-                                    y="3.5"
-                                    fontSize="9.5"
-                                    fontWeight={isHighlighted ? "700" : "600"}
-                                    fill={isHighlighted ? "#ffffff" : "#2a2a32"}
-                                    textAnchor="start"
-                                  >
-                                    {node.shortLabel}
-                                  </text>
-                                </g>
-                              );
-                            })}
-                          </svg>
-                        </div>
-
-                        {/* Visual Legend */}
-                        <div className="clause-rel-legend">
-                          <span className="clause-rel-legend-title">Types:</span>
-                          <div className="clause-rel-legend-items">
-                            {Object.entries(RELATIONSHIP_TYPES).map(([typeKey, cfg]) => {
-                              const hasThisType = availableTypes.includes(typeKey);
-                              return (
-                                <div
-                                  key={typeKey}
-                                  className={`clause-rel-legend-item ${hasThisType ? "active" : "inactive"}`}
-                                >
-                                  <span
-                                    className="clause-rel-legend-dot"
-                                    style={{ background: cfg.color }}
-                                  />
-                                  <span>{cfg.label}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Evidence / Details Inspector Panel */}
-                      <div className="clause-rel-details-panel">
-                        {selectedRel ? (
-                          // RELATIONSHIP EVIDENCE VIEW
-                          <div className="clause-rel-inspect-content">
-                            <div className="clause-rel-inspect-header">
-                              <div className="clause-rel-inspect-badge-row">
-                                {(() => {
-                                  const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
-                                  const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-                                  return (
-                                    <span
-                                      className="clause-rel-type-tag"
-                                      style={{
-                                        background: cfg.bgColor,
-                                        borderColor: cfg.borderColor,
-                                        color: cfg.badgeColor,
-                                      }}
-                                    >
-                                      {cfg.icon} {cfg.label.toUpperCase()}
-                                    </span>
-                                  );
-                                })()}
-                                <span className="clause-rel-confidence-tag">
-                                  {Math.round((selectedRel.confidence ?? 1.0) * 100)}% confidence
-                                </span>
-                              </div>
-
-                              <button
-                                type="button"
-                                className="clause-rel-close-btn"
-                                onClick={() => setSelectedRelIndex(null)}
-                                aria-label="Close details"
+                            <div className="connected-item-top">
+                              <span
+                                className="clause-rel-type-tag compact"
+                                style={{
+                                  background: cfg.bgColor,
+                                  borderColor: cfg.borderColor,
+                                  color: cfg.badgeColor,
+                                }}
                               >
-                                <X size={15} />
-                              </button>
-                            </div>
-
-                            {/* Clause Flow Box */}
-                            {(() => {
-                              const src = resolveClauseData(selectedRel.source_clause_id, clauses);
-                              const tgt = resolveClauseData(selectedRel.target_clause_id, clauses);
-                              const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
-                              const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-
-                              return (
-                                <div className="clause-rel-flow-container">
-                                  <div className="clause-rel-flow-card">
-                                    <span className="flow-role">SOURCE CLAUSE</span>
-                                    <strong>{src?.displayLabel}</strong>
-                                    <div className="flow-meta">
-                                      <span>{src?.category}</span>
-                                      <span className={`flow-risk ${src?.risk}`}>{src?.risk} risk</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="clause-rel-flow-arrow" style={{ color: cfg.color }}>
-                                    <ArrowRight size={18} />
-                                    <small>{cfg.label}</small>
-                                  </div>
-
-                                  <div className="clause-rel-flow-card">
-                                    <span className="flow-role">TARGET CLAUSE</span>
-                                    <strong>{tgt ? tgt.displayLabel : "Agreement Scope"}</strong>
-                                    <div className="flow-meta">
-                                      <span>{tgt ? tgt.category : "General provisions"}</span>
-                                      {tgt && <span className={`flow-risk ${tgt.risk}`}>{tgt.risk} risk</span>}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* Legal Effect Description */}
-                            {(() => {
-                              const typeKey = (selectedRel.relationship_type || "REFERENCE").toUpperCase();
-                              const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-                              return (
-                                <div className="clause-rel-description-box">
-                                  <span className="card-label">LEGAL MEANING</span>
-                                  <p>{cfg.description}</p>
-                                </div>
-                              );
-                            })()}
-
-                            {/* Evidence Callout */}
-                            <div className="clause-rel-evidence-box">
-                              <div className="clause-rel-evidence-header">
-                                <Sparkles size={14} />
-                                <span>CONTRACT EVIDENCE</span>
-                              </div>
-                              <blockquote>
-                                "{selectedRel.evidence || "Direct cross-reference identified in clause language."}"
-                              </blockquote>
-                            </div>
-
-                            {/* Action Links */}
-                            <div className="clause-rel-actions">
-                              <button
-                                type="button"
-                                className="clause-rel-view-link"
-                                onClick={() => onSelectClause && onSelectClause(selectedRel.source_clause_id)}
-                              >
-                                View Source in Clause List
-                              </button>
-                              {selectedRel.target_clause_id && (
-                                <button
-                                  type="button"
-                                  className="clause-rel-view-link secondary"
-                                  onClick={() => onSelectClause && onSelectClause(selectedRel.target_clause_id)}
-                                >
-                                  View Target in Clause List
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ) : selectedNode ? (
-                          // NODE DETAIL VIEW
-                          <div className="clause-rel-inspect-content">
-                            <div className="clause-rel-inspect-header">
-                              <div>
-                                <span className="card-label">SELECTED CLAUSE</span>
-                                <h3>{selectedNode.displayLabel}</h3>
-                              </div>
-                              <button
-                                type="button"
-                                className="clause-rel-close-btn"
-                                onClick={() => setSelectedNodeId(null)}
-                                aria-label="Close details"
-                              >
-                                <X size={15} />
-                              </button>
-                            </div>
-
-                            <div className="clause-rel-node-meta">
-                              <span>{selectedNode.category}</span>
-                              <span className={`clause-explorer-risk ${selectedNode.risk}`}>
-                                {selectedNode.risk} risk
+                                {cfg.icon} {cfg.label}
                               </span>
-                              {selectedNode.score !== undefined && (
-                                <span className="clause-rel-score-badge">Score {selectedNode.score}</span>
-                              )}
-                            </div>
-
-                            {selectedNode.explanation && (
-                              <div className="clause-rel-node-snippet">
-                                <span className="card-label">EXPLANATION</span>
-                                <p>{selectedNode.explanation}</p>
-                              </div>
-                            )}
-
-                            {/* Connected Relationships for this node */}
-                            <div className="clause-rel-connected-section">
-                              <span className="card-label">
-                                CONNECTED RELATIONSHIPS ({selectedNodeRels.length})
+                              <span className="connected-direction">
+                                {isOutgoing ? "Targets →" : "← Sourced from"}
                               </span>
-
-                              {selectedNodeRels.length > 0 ? (
-                                <div className="clause-rel-connected-list">
-                                  {selectedNodeRels.map((rel, i) => {
-                                    const isOutgoing = rel.source_clause_id === selectedNode.id;
-                                    const otherId = isOutgoing ? rel.target_clause_id : rel.source_clause_id;
-                                    const otherClause = resolveClauseData(otherId, clauses);
-                                    const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
-                                    const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-
-                                    return (
-                                      <button
-                                        key={i}
-                                        type="button"
-                                        className="clause-rel-connected-item"
-                                        onClick={() => {
-                                          const relIdx = visibleRelationships.indexOf(rel);
-                                          if (relIdx !== -1) {
-                                            setSelectedRelIndex(relIdx);
-                                            setSelectedNodeId(null);
-                                          }
-                                        }}
-                                      >
-                                        <div className="connected-item-top">
-                                          <span
-                                            className="clause-rel-type-tag compact"
-                                            style={{
-                                              background: cfg.bgColor,
-                                              borderColor: cfg.borderColor,
-                                              color: cfg.badgeColor,
-                                            }}
-                                          >
-                                            {cfg.icon} {cfg.label}
-                                          </span>
-                                          <span className="connected-direction">
-                                            {isOutgoing ? "Targets →" : "← Sourced from"}
-                                          </span>
-                                        </div>
-                                        <strong className="connected-partner-title">
-                                          {otherClause ? otherClause.displayLabel : "Agreement Scope"}
-                                        </strong>
-                                        <small className="connected-evidence">
-                                          "{rel.evidence?.slice(0, 110)}..."
-                                        </small>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="clause-rel-no-conn">No cross-clause links for this clause.</p>
-                              )}
                             </div>
-
-                            <div className="clause-rel-actions">
-                              <button
-                                type="button"
-                                className="clause-rel-view-link"
-                                onClick={() => onSelectClause && onSelectClause(selectedNode.id)}
-                              >
-                                Open in Clause List
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          // DEFAULT OVERVIEW VIEW
-                          <div className="clause-rel-inspect-content">
-                            <div className="clause-rel-default-header">
-                              <div className="clause-rel-default-icon">
-                                <Share2 size={22} />
-                              </div>
-                              <span className="card-label">RELATIONSHIP INTELLIGENCE</span>
-                              <h3>Cross-Clause Interactions</h3>
-                              <p>
-                                Click any node or link in the graph to view exact legal evidence,
-                                cross-references, and override triggers.
-                              </p>
-                            </div>
-
-                            {/* Quick Stats Grid */}
-                            <div className="clause-rel-stats-grid">
-                              <div className="clause-rel-stat-box">
-                                <strong>{rawRelationships.length}</strong>
-                                <span>Total Links</span>
-                              </div>
-                              <div className="clause-rel-stat-box">
-                                <strong>{graphNodes.length}</strong>
-                                <span>Clauses Connected</span>
-                              </div>
-                              <div className="clause-rel-stat-box">
-                                <strong>{availableTypes.length}</strong>
-                                <span>Relationship Types</span>
-                              </div>
-                            </div>
-
-                            {/* Interactive Relationship Cards List */}
-                            <div className="clause-rel-summary-list">
-                              <span className="card-label">ALL DETECTED CONNECTIONS</span>
-                              <div className="clause-rel-card-scroll">
-                                {visibleRelationships.map((rel, idx) => {
-                                  const src = resolveClauseData(rel.source_clause_id, clauses);
-                                  const tgt = resolveClauseData(rel.target_clause_id, clauses);
-                                  const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
-                                  const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
-
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      className="clause-rel-summary-card"
-                                      onClick={() => {
-                                        setSelectedRelIndex(idx);
-                                        setSelectedNodeId(null);
-                                      }}
-                                    >
-                                      <div className="summary-card-top">
-                                        <span
-                                          className="clause-rel-type-tag compact"
-                                          style={{
-                                            background: cfg.bgColor,
-                                            borderColor: cfg.borderColor,
-                                            color: cfg.badgeColor,
-                                          }}
-                                        >
-                                          {cfg.icon} {cfg.label}
-                                        </span>
-                                        <span className="summary-card-conf">
-                                          {Math.round((rel.confidence ?? 1.0) * 100)}%
-                                        </span>
-                                      </div>
-
-                                      <div className="summary-card-flow">
-                                        <span>{src?.displayLabel}</span>
-                                        <ArrowRight size={12} style={{ color: cfg.color }} />
-                                        <span>{tgt ? tgt.displayLabel : "Agreement Scope"}</span>
-                                      </div>
-
-                                      <small className="summary-card-snippet">
-                                        "{rel.evidence?.slice(0, 95)}..."
-                                      </small>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                            <strong className="connected-partner-title">
+                              {otherClause ? otherClause.displayLabel : "Agreement Scope"}
+                            </strong>
+                            <small className="connected-evidence">
+                              "{rel.evidence ? String(rel.evidence).slice(0, 110) : ""}..."
+                            </small>
+                          </button>
+                        );
+                      })}
                     </div>
+                  ) : (
+                    <p className="clause-rel-no-conn">No cross-clause links for this clause.</p>
                   )}
                 </div>
-              );
-            }
+
+                <div className="clause-rel-actions">
+                  <button
+                    type="button"
+                    className="clause-rel-view-link"
+                    onClick={() => onSelectClause && onSelectClause(selectedNode.id)}
+                  >
+                    Open in Clause List
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // DEFAULT OVERVIEW VIEW
+              <div className="clause-rel-inspect-content">
+                <div className="clause-rel-default-header">
+                  <div className="clause-rel-default-icon">
+                    <Share2 size={22} />
+                  </div>
+                  <span className="card-label">RELATIONSHIP INTELLIGENCE</span>
+                  <h3>Cross-Clause Interactions</h3>
+                  <p>
+                    Click any node or link in the graph to view exact legal evidence,
+                    cross-references, and override triggers.
+                  </p>
+                </div>
+
+                {/* Quick Stats Grid */}
+                <div className="clause-rel-stats-grid">
+                  <div className="clause-rel-stat-box">
+                    <strong>{rawRelationships.length}</strong>
+                    <span>Total Links</span>
+                  </div>
+                  <div className="clause-rel-stat-box">
+                    <strong>{graphNodes.length}</strong>
+                    <span>Clauses Connected</span>
+                  </div>
+                  <div className="clause-rel-stat-box">
+                    <strong>{availableTypes.length}</strong>
+                    <span>Relationship Types</span>
+                  </div>
+                </div>
+
+                {/* Interactive Relationship Cards List */}
+                <div className="clause-rel-summary-list">
+                  <span className="card-label">ALL DETECTED CONNECTIONS</span>
+                  <div className="clause-rel-card-scroll">
+                    {visibleRelationships.length === 0 ? (
+                      <div className="clause-rel-no-conn" style={{ textAlign: "center", padding: "1.5rem" }}>
+                        No relationships match your search or filter.
+                      </div>
+                    ) : (
+                      visibleRelationships.map((rel, idx) => {
+                        const src = resolveClauseData(rel.source_clause_id, safeClauses);
+                        const tgt = resolveClauseData(rel.target_clause_id, safeClauses);
+                        const typeKey = (rel.relationship_type || "REFERENCE").toUpperCase();
+                        const cfg = RELATIONSHIP_TYPES[typeKey] || RELATIONSHIP_TYPES.REFERENCE;
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="clause-rel-summary-card"
+                            onClick={() => {
+                              setSelectedRelIndex(idx);
+                              setSelectedNodeId(null);
+                            }}
+                          >
+                            <div className="summary-card-top">
+                              <span
+                                className="clause-rel-type-tag compact"
+                                style={{
+                                  background: cfg.bgColor,
+                                  borderColor: cfg.borderColor,
+                                  color: cfg.badgeColor,
+                                }}
+                              >
+                                {cfg.icon} {cfg.label}
+                              </span>
+                              <span className="summary-card-conf">
+                                {Math.round((rel.confidence ?? 1.0) * 100)}%
+                              </span>
+                            </div>
+
+                            <div className="summary-card-flow">
+                              <span>{src?.displayLabel}</span>
+                              <ArrowRight size={12} style={{ color: cfg.color }} />
+                              <span>{tgt ? tgt.displayLabel : "Agreement Scope"}</span>
+                            </div>
+
+                            <small className="summary-card-snippet">
+                              "{rel.evidence ? String(rel.evidence).slice(0, 95) : ""}..."
+                            </small>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* =========================
    REPORTS PAGE
@@ -2025,13 +2292,13 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate }) {
 
       (passedAnalysis?.analyses || passedAnalysis?.clauses || Array.isArray(passedAnalysis)
         ? Promise.resolve({
-            status: "fulfilled",
-            type: "analysis",
-            data: passedAnalysis,
-          })
+          status: "fulfilled",
+          type: "analysis",
+          data: passedAnalysis,
+        })
         : getContractAnalysis(targetFileId)
-            .then((data) => ({ status: "fulfilled", type: "analysis", data }))
-            .catch((err) => ({ status: "rejected", type: "analysis", err }))
+          .then((data) => ({ status: "fulfilled", type: "analysis", data }))
+          .catch((err) => ({ status: "rejected", type: "analysis", err }))
       ),
 
       getContractRelationships(targetFileId)
@@ -2758,318 +3025,422 @@ function ReportSectionItem({ title, icon: Icon, items }) {
 
 const ContractSummary = ReportsPage;
 
-            /* =========================
-               ASK MY T&C
-            ========================= */
+/* =========================
+   ASK MY T&C
+========================= */
 
-            function AskMyTC({ fileId, analysis }) {
-              const [draft, setDraft] = useState("");
-              const [messages, setMessages] = useState([]);
-              const [isAsking, setIsAsking] = useState(false);
-              const [historyLoading, setHistoryLoading] = useState(false);
-              const [historyError, setHistoryError] = useState("");
-              const [qaError, setQaError] = useState("");
-              const messagesEndRef = useRef(null);
+function formatInlineText(str) {
+  if (!str) return "";
 
-              const hasContract = Boolean(fileId);
-              const contractName =
-                analysis?.filename ||
-                analysis?.file_name ||
-                analysis?.contract_name ||
-                "Selected contract";
+  const parts = str.split(/(\*\*.*?\*\*)/g);
+  if (parts.length > 1) {
+    return (
+      <>
+        {parts.map((part, i) => {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            return (
+              <strong key={i} className="ask-highlight-label">
+                {part.slice(2, -2)}
+              </strong>
+            );
+          }
+          return part;
+        })}
+      </>
+    );
+  }
 
-              const suggestedQuestions = [
-                "What are my biggest obligations?",
-                "Which clauses carry the most risk?",
-                "What should I review before signing?",
-              ];
+  const labelMatch = str.match(/^([A-Za-z0-9\s()_-]{2,30}:)(.*)$/);
+  if (labelMatch) {
+    return (
+      <>
+        <strong className="ask-highlight-label">{labelMatch[1]}</strong>
+        {labelMatch[2]}
+      </>
+    );
+  }
 
-              const fetchHistory = async (targetFileId) => {
-                if (!targetFileId) {
-                  setMessages([]);
-                  setHistoryLoading(false);
-                  setHistoryError("");
-                  return;
-                }
+  return str;
+}
 
-                setMessages([]);
-                setHistoryLoading(true);
-                setHistoryError("");
-                setQaError("");
+function renderAssistantContent(text) {
+  if (!text || typeof text !== "string") return null;
 
-                try {
-                  const data = await getQAHistory(targetFileId);
-                  const formatted = [];
-                  if (Array.isArray(data)) {
-                    data.forEach((record) => {
-                      if (record.question) {
-                        formatted.push({
-                          id: `${record.id}-user`,
-                          role: "user",
-                          text: record.question,
-                          createdAt: record.created_at,
-                        });
-                      }
-                      if (record.answer) {
-                        formatted.push({
-                          id: `${record.id}-assistant`,
-                          role: "assistant",
-                          text: record.answer,
-                          createdAt: record.created_at,
-                        });
-                      }
-                    });
-                  }
-                  setMessages(formatted);
-                } catch (err) {
-                  const message =
-                    err?.response?.data?.detail ||
-                    err?.response?.data?.message ||
-                    err?.message ||
-                    "Failed to load conversation history.";
-                  setHistoryError(message);
-                } finally {
-                  setHistoryLoading(false);
-                }
-              };
+  const rawLines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
-              useEffect(() => {
-                fetchHistory(fileId);
-              }, [fileId]);
+  if (rawLines.length === 0) return null;
 
-              useEffect(() => {
-                if (messages.length > 0 || isAsking) {
-                  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                }
-              }, [messages, isAsking]);
+  const hasBullets = rawLines.some((l) => /^[-*•]\s+|\d+\.\s+/.test(l));
 
-              const handleSend = async () => {
-                const question = draft.trim();
-                if (!question || !hasContract || isAsking || historyLoading) return;
+  if (!hasBullets) {
+    return (
+      <div className="ask-assistant-body">
+        {rawLines.map((line, idx) => (
+          <p key={idx} className="ask-assistant-paragraph">
+            {formatInlineText(line)}
+          </p>
+        ))}
+      </div>
+    );
+  }
 
-                const tempId = Date.now();
-                setMessages((currentMessages) => [
-                  ...currentMessages,
-                  { id: `${tempId}-user`, role: "user", text: question },
-                ]);
-                setDraft("");
-                setQaError("");
-                setIsAsking(true);
+  const elements = [];
+  let currentList = [];
 
-                try {
-                  const response = await askContractQuestion(
-                    fileId,
-                    question
-                  );
+  const flushList = (key) => {
+    if (currentList.length > 0) {
+      elements.push(
+        <ul key={key} className="ask-assistant-list">
+          {currentList.map((item, i) => (
+            <li key={i} className="ask-assistant-list-item">
+              <span className="ask-bullet-dot" aria-hidden="true" />
+              <div className="ask-item-text">{formatInlineText(item)}</div>
+            </li>
+          ))}
+        </ul>
+      );
+      currentList = [];
+    }
+  };
 
-                  if (!response?.answer) {
-                    throw new Error(
-                      "The QA service returned no answer."
-                    );
-                  }
+  rawLines.forEach((line, idx) => {
+    const bulletMatch =
+      line.match(/^[-*•]\s+(.*)$/) || line.match(/^\d+\.\s+(.*)$/);
 
-                  setMessages((currentMessages) => [
-                    ...currentMessages,
-                    {
-                      id: `${Date.now()}-assistant`,
-                      role: "assistant",
-                      text: response.answer,
-                    },
-                  ]);
-                } catch (error) {
-                  const message =
-                    error?.response?.data?.detail ||
-                    error?.response?.data?.message ||
-                    error?.message ||
-                    "Unable to get an answer from the contract assistant.";
+    if (bulletMatch) {
+      currentList.push(bulletMatch[1]);
+    } else {
+      flushList(`list-before-${idx}`);
+      elements.push(
+        <p key={`p-${idx}`} className="ask-assistant-paragraph ask-lead-text">
+          {formatInlineText(line)}
+        </p>
+      );
+    }
+  });
 
-                  setQaError(message);
-                } finally {
-                  setIsAsking(false);
-                }
-              };
+  flushList("list-final");
 
-              const handleInputKeyDown = (event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  handleSend();
-                }
-              };
+  return <div className="ask-assistant-body">{elements}</div>;
+}
 
-              return (
-                <div className="ask-page">
-                  <section className="ask-page-header">
-                    <div>
-                      <span className="eyebrow">CONTRACT ASSISTANT</span>
-                      <h2>Ask My T&C</h2>
-                      <p>
-                        Ask focused questions about the language, obligations, and risk
-                        signals in your selected contract.
-                      </p>
-                    </div>
+function AskMyTC({ fileId, analysis }) {
+  const [draft, setDraft] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [isAsking, setIsAsking] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [qaError, setQaError] = useState("");
+  const messagesEndRef = useRef(null);
 
-                    <div className={`ask-context-indicator ${hasContract ? "ready" : "empty"}`}>
-                      <span className="ask-context-dot" />
-                      <div>
-                        <span>ACTIVE CONTEXT</span>
-                        <strong>{hasContract ? contractName : "No contract selected"}</strong>
-                      </div>
-                    </div>
-                  </section>
+  const hasContract = Boolean(fileId);
+  const contractName =
+    analysis?.filename ||
+    analysis?.file_name ||
+    analysis?.contract_name ||
+    "Selected contract";
 
-                  <section className="ask-chat-shell">
-                    <div className="ask-chat-header">
-                      <div className="ask-assistant-avatar">
-                        <Bot size={19} />
-                      </div>
-                      <div>
-                        <strong>Term Shield assistant</strong>
-                        <span>
-                          {hasContract
-                            ? historyLoading
-                              ? "Loading conversation history..."
-                              : "Contract context ready"
-                            : "Waiting for a contract"}
-                        </span>
-                      </div>
-                      <span className="ask-chat-status">
-                        <span />
-                        QA connected
-                      </span>
-                    </div>
+  const suggestedQuestions = [
+    "What are my biggest obligations?",
+    "Which clauses carry the most risk?",
+    "What should I review before signing?",
+  ];
 
-                    <div className="ask-chat-messages" aria-live="polite">
-                      <div className="ask-message assistant-message">
-                        <div className="ask-message-avatar">
-                          <Bot size={15} />
-                        </div>
-                        <div className="ask-message-content">
-                          <span className="ask-message-author">Term Shield</span>
-                          <div className="ask-message-bubble">
-                            {hasContract
-                              ? `I’m ready to help you understand ${contractName}. Ask about a clause, obligation, deadline, or risk signal.`
-                              : "Upload and analyze a contract first, then I can help you explore its terms in plain language."}
-                          </div>
-                        </div>
-                      </div>
+  const fetchHistory = async (targetFileId) => {
+    if (!targetFileId) {
+      setMessages([]);
+      setHistoryLoading(false);
+      setHistoryError("");
+      return;
+    }
 
-                      {historyLoading && (
-                        <div className="ask-history-loading">
-                          <Loader2 size={16} className="spin" />
-                          <span>Loading saved conversation history...</span>
-                        </div>
-                      )}
+    setMessages([]);
+    setHistoryLoading(true);
+    setHistoryError("");
+    setQaError("");
 
-                      {historyError && !historyLoading && (
-                        <div className="ask-history-error-banner" role="alert">
-                          <div className="ask-history-error-text">
-                            <AlertCircle size={15} />
-                            <span>{historyError}</span>
-                          </div>
-                          <button
-                            type="button"
-                            className="ask-history-retry-btn"
-                            onClick={() => fetchHistory(fileId)}
-                          >
-                            <RefreshCw size={13} />
-                            <span>Retry</span>
-                          </button>
-                        </div>
-                      )}
+    try {
+      const data = await getQAHistory(targetFileId);
+      const formatted = [];
+      if (Array.isArray(data)) {
+        data.forEach((record) => {
+          if (record.question) {
+            formatted.push({
+              id: `${record.id}-user`,
+              role: "user",
+              text: record.question,
+              createdAt: record.created_at,
+            });
+          }
+          if (record.answer) {
+            formatted.push({
+              id: `${record.id}-assistant`,
+              role: "assistant",
+              text: record.answer,
+              createdAt: record.created_at,
+            });
+          }
+        });
+      }
+      setMessages(formatted);
+    } catch (err) {
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to load conversation history.";
+      setHistoryError(message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
-                      {messages.map((message) => (
-                        <div
-                          className={`ask-message ${message.role === "assistant" ? "assistant-message" : "user-message"}`}
-                          key={message.id}
-                        >
-                          {message.role === "assistant" && (
-                            <div className="ask-message-avatar">
-                              <Bot size={15} />
-                            </div>
-                          )}
-                          <div className="ask-message-content">
-                            <span className="ask-message-author">
-                              {message.role === "assistant" ? "Term Shield" : "You"}
-                            </span>
-                            <div className="ask-message-bubble">{message.text}</div>
-                          </div>
-                        </div>
-                      ))}
+  useEffect(() => {
+    fetchHistory(fileId);
+  }, [fileId]);
 
-                      {isAsking && (
-                        <div className="ask-message assistant-message">
-                          <div className="ask-message-avatar">
-                            <Bot size={15} />
-                          </div>
-                          <div className="ask-message-content">
-                            <span className="ask-message-author">Term Shield</span>
-                            <div className="ask-message-bubble ask-thinking-bubble">
-                              <Loader2 size={15} className="spin" />
-                              Thinking about your contract...
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      <div ref={messagesEndRef} />
-                    </div>
+  useEffect(() => {
+    if (messages.length > 0 || isAsking) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isAsking]);
 
-                    <div className="ask-chat-composer">
-                      <div className="ask-suggestions">
-                        <span>Try asking</span>
-                        <div>
-                          {suggestedQuestions.map((question) => (
-                            <button
-                              type="button"
-                              key={question}
-                              disabled={!hasContract || isAsking || historyLoading}
-                              onClick={() => setDraft(question)}
-                            >
-                              {question}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+  const handleSend = async () => {
+    const question = draft.trim();
+    if (!question || !hasContract || isAsking || historyLoading) return;
 
-                      <div className="ask-input-row">
-                        <textarea
-                          value={draft}
-                          onChange={(event) => setDraft(event.target.value)}
-                          onKeyDown={handleInputKeyDown}
-                          disabled={!hasContract || isAsking || historyLoading}
-                          placeholder={
-                            hasContract
-                              ? "Ask about this contract..."
-                              : "Select a contract to start asking questions"
-                          }
-                          rows={1}
-                          aria-label="Ask about the selected contract"
-                        />
-                        <button
-                          className="ask-send-button"
-                          type="button"
-                          disabled={!hasContract || !draft.trim() || isAsking || historyLoading}
-                          onClick={handleSend}
-                          aria-label="Send question"
-                        >
-                          <Send size={17} />
-                        </button>
-                      </div>
+    const tempId = Date.now();
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      { id: `${tempId}-user`, role: "user", text: question },
+    ]);
+    setDraft("");
+    setQaError("");
+    setIsAsking(true);
 
-                      {qaError && (
-                        <div className="ask-qa-error" role="alert">
-                          <AlertCircle size={14} />
-                          <span>{qaError}</span>
-                        </div>
-                      )}
+    try {
+      const response = await askContractQuestion(
+        fileId,
+        question
+      );
 
-                      <p className="ask-composer-note">
-                        Answers are grounded in the selected contract and persisted to your library.
-                      </p>
-                    </div>
-                  </section>
+      if (!response?.answer) {
+        throw new Error(
+          "The QA service returned no answer."
+        );
+      }
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `${Date.now()}-assistant`,
+          role: "assistant",
+          text: response.answer,
+        },
+      ]);
+    } catch (error) {
+      const message =
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Unable to get an answer from the contract assistant.";
+
+      setQaError(message);
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  const handleInputKeyDown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="ask-page">
+      <section className="ask-page-header">
+        <div>
+          <span className="eyebrow">CONTRACT ASSISTANT</span>
+          <h2>Ask My T&C</h2>
+          <p>
+            Ask focused questions about the language, obligations, and risk
+            signals in your selected contract.
+          </p>
+        </div>
+
+        <div className={`ask-context-indicator ${hasContract ? "ready" : "empty"}`}>
+          <span className="ask-context-dot" />
+          <div>
+            <span>ACTIVE CONTEXT</span>
+            <strong>{hasContract ? contractName : "No contract selected"}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="ask-chat-shell">
+        <div className="ask-chat-header">
+          <div className="ask-assistant-avatar">
+            <Bot size={19} />
+          </div>
+          <div>
+            <strong>Term Shield assistant</strong>
+            <span>
+              {hasContract
+                ? historyLoading
+                  ? "Loading conversation history..."
+                  : "Contract context ready"
+                : "Waiting for a contract"}
+            </span>
+          </div>
+          <span className="ask-chat-status">
+            <span />
+            QA connected
+          </span>
+        </div>
+
+        <div className="ask-chat-messages" aria-live="polite">
+          <div className="ask-message assistant-message">
+            <div className="ask-message-avatar">
+              <Bot size={15} />
+            </div>
+            <div className="ask-message-content">
+              <span className="ask-message-author">Term Shield</span>
+              <div className="ask-message-bubble">
+                {renderAssistantContent(
+                  hasContract
+                    ? `I’m ready to help you understand ${contractName}. Ask about a clause, obligation, deadline, or risk signal.`
+                    : "Upload and analyze a contract first, then I can help you explore its terms in plain language."
+                )}
+              </div>
+            </div>
+          </div>
+
+          {historyLoading && (
+            <div className="ask-history-loading">
+              <Loader2 size={16} className="spin" />
+              <span>Loading saved conversation history...</span>
+            </div>
+          )}
+
+          {historyError && !historyLoading && (
+            <div className="ask-history-error-banner" role="alert">
+              <div className="ask-history-error-text">
+                <AlertCircle size={15} />
+                <span>{historyError}</span>
+              </div>
+              <button
+                type="button"
+                className="ask-history-retry-btn"
+                onClick={() => fetchHistory(fileId)}
+              >
+                <RefreshCw size={13} />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
+
+          {messages.map((message) => (
+            <div
+              className={`ask-message ${message.role === "assistant" ? "assistant-message" : "user-message"}`}
+              key={message.id}
+            >
+              {message.role === "assistant" && (
+                <div className="ask-message-avatar">
+                  <Bot size={15} />
                 </div>
-              );
-            }
+              )}
+              <div className="ask-message-content">
+                <span className="ask-message-author">
+                  {message.role === "assistant" ? "Term Shield" : "You"}
+                </span>
+                <div className="ask-message-bubble">
+                  {message.role === "assistant"
+                    ? renderAssistantContent(message.text)
+                    : message.text}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {isAsking && (
+            <div className="ask-message assistant-message">
+              <div className="ask-message-avatar">
+                <Bot size={15} />
+              </div>
+              <div className="ask-message-content">
+                <span className="ask-message-author">Term Shield</span>
+                <div className="ask-message-bubble ask-thinking-bubble">
+                  <Loader2 size={15} className="spin" />
+                  Thinking about your contract...
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className="ask-chat-composer">
+          <div className="ask-suggestions">
+            <span>Try asking</span>
+            <div>
+              {suggestedQuestions.map((question) => (
+                <button
+                  type="button"
+                  key={question}
+                  disabled={!hasContract || isAsking || historyLoading}
+                  onClick={() => setDraft(question)}
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="ask-input-row">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              disabled={!hasContract || isAsking || historyLoading}
+              placeholder={
+                hasContract
+                  ? "Ask about this contract..."
+                  : "Select a contract to start asking questions"
+              }
+              rows={1}
+              aria-label="Ask about the selected contract"
+            />
+            <button
+              className="ask-send-button"
+              type="button"
+              disabled={!hasContract || !draft.trim() || isAsking || historyLoading}
+              onClick={handleSend}
+              aria-label="Send question"
+            >
+              <Send size={17} />
+            </button>
+          </div>
+
+          {qaError && (
+            <div className="ask-qa-error" role="alert">
+              <AlertCircle size={14} />
+              <span>{qaError}</span>
+            </div>
+          )}
+
+          <p className="ask-composer-note">
+            Answers are grounded in the selected contract and persisted to your library.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 
 /* =========================
@@ -3093,8 +3464,8 @@ function Dashboard({
   const firstName = currentUser?.full_name?.trim()
     ? currentUser.full_name.trim().split(/\s+/)[0]
     : currentUser?.email
-    ? currentUser.email.split("@")[0]
-    : "";
+      ? currentUser.email.split("@")[0]
+      : "";
 
   const totalContracts = contracts.length;
 
@@ -3120,9 +3491,9 @@ function Dashboard({
   const avgRiskScore =
     scoredContracts.length > 0
       ? Math.round(
-          scoredContracts.reduce((acc, c) => acc + c.overall_risk_score, 0) /
-            scoredContracts.length
-        )
+        scoredContracts.reduce((acc, c) => acc + c.overall_risk_score, 0) /
+        scoredContracts.length
+      )
       : null;
 
   const analyzedContracts = contracts.filter((c) => {
@@ -3166,9 +3537,9 @@ function Dashboard({
   const previousAvgScore =
     previousScored.length > 0
       ? Math.round(
-          previousScored.reduce((acc, c) => acc + (c.overall_risk_score || 0), 0) /
-            previousScored.length
-        )
+        previousScored.reduce((acc, c) => acc + (c.overall_risk_score || 0), 0) /
+        previousScored.length
+      )
       : null;
 
   const formatContractDate = (dateStr) => {
@@ -3393,8 +3764,8 @@ function Dashboard({
               ? avgRiskScore >= 70
                 ? "High risk baseline"
                 : avgRiskScore >= 40
-                ? "Moderate risk baseline"
-                : "Low risk baseline"
+                  ? "Moderate risk baseline"
+                  : "Low risk baseline"
               : "No scored contracts"
           }
           icon={BarChart3}
@@ -3474,8 +3845,8 @@ function Dashboard({
                 ? avgRiskScore >= 70
                   ? "Elevated Risk Portfolio"
                   : avgRiskScore >= 40
-                  ? "Moderate Risk Portfolio"
-                  : "Safe / Low Risk Portfolio"
+                    ? "Moderate Risk Portfolio"
+                    : "Safe / Low Risk Portfolio"
                 : "Awaiting Risk Evaluation"}
             </strong>
           </div>
@@ -3571,8 +3942,8 @@ function Dashboard({
                 ? latestScored.overall_risk_score < previousAvgScore
                   ? `Recent addition (${latestScored.filename}) lowered portfolio risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
                   : latestScored.overall_risk_score > previousAvgScore
-                  ? `Recent addition (${latestScored.filename}) introduced higher risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
-                  : `Recent addition (${latestScored.filename}) matched baseline risk at ${latestScored.overall_risk_score}/100.`
+                    ? `Recent addition (${latestScored.filename}) introduced higher risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
+                    : `Recent addition (${latestScored.filename}) matched baseline risk at ${latestScored.overall_risk_score}/100.`
                 : "Tracking chronological contract evaluations."}
             </span>
           </div>
@@ -3873,9 +4244,8 @@ function UploadContract({
       <div className="upload-methods">
         <button
           type="button"
-          className={`method-tab ${
-            activeInput === "file" ? "active" : ""
-          }`}
+          className={`method-tab ${activeInput === "file" ? "active" : ""
+            }`}
           onClick={() => setActiveInput("file")}
         >
           <FileUp size={17} />
@@ -3884,9 +4254,8 @@ function UploadContract({
 
         <button
           type="button"
-          className={`method-tab ${
-            activeInput === "url" ? "active" : ""
-          }`}
+          className={`method-tab ${activeInput === "url" ? "active" : ""
+            }`}
           onClick={() => setActiveInput("url")}
         >
           <Link size={17} />
@@ -3898,9 +4267,8 @@ function UploadContract({
         <section className="upload-workspace">
           {!selectedFile ? (
             <div
-              className={`large-dropzone ${
-                dragging ? "dragging" : ""
-              }`}
+              className={`large-dropzone ${dragging ? "dragging" : ""
+                }`}
               aria-label="Contract file upload area"
               onDragOver={(event) => {
                 event.preventDefault();
@@ -4094,12 +4462,12 @@ function UploadContract({
 
             {uploadResult.character_count !==
               undefined && (
-              <span>
-                Extracted text:{" "}
-                {uploadResult.character_count.toLocaleString()}{" "}
-                characters
-              </span>
-            )}
+                <span>
+                  Extracted text:{" "}
+                  {uploadResult.character_count.toLocaleString()}{" "}
+                  characters
+                </span>
+              )}
           </div>
         </div>
       )}
@@ -4231,9 +4599,8 @@ function StatCard({
   return (
     <div className="stat-card">
       <div
-        className={`stat-icon ${
-          danger ? "danger" : ""
-        }`}
+        className={`stat-icon ${danger ? "danger" : ""
+          }`}
       >
         <Icon size={18} />
       </div>
@@ -4277,18 +4644,18 @@ function RiskAnalysis({
   const clauses = Array.isArray(analysis)
     ? analysis
     : analysis?.analyses ||
-      analysis?.clauses ||
-      analysis?.results ||
-      analysis?.data ||
-      [];
+    analysis?.clauses ||
+    analysis?.results ||
+    analysis?.data ||
+    [];
 
   const highRisk = clauses.filter(
     (clause) =>
       String(
         clause?.risk_level ||
-          clause?.risk ||
-          clause?.riskLevel ||
-          ""
+        clause?.risk ||
+        clause?.riskLevel ||
+        ""
       ).toLowerCase() === "high"
   );
 
@@ -4296,9 +4663,9 @@ function RiskAnalysis({
     (clause) =>
       String(
         clause?.risk_level ||
-          clause?.risk ||
-          clause?.riskLevel ||
-          ""
+        clause?.risk ||
+        clause?.riskLevel ||
+        ""
       ).toLowerCase() === "medium"
   );
 
@@ -4306,9 +4673,9 @@ function RiskAnalysis({
     (clause) =>
       String(
         clause?.risk_level ||
-          clause?.risk ||
-          clause?.riskLevel ||
-          ""
+        clause?.risk ||
+        clause?.riskLevel ||
+        ""
       ).toLowerCase() === "low"
   );
 
@@ -4326,11 +4693,11 @@ function RiskAnalysis({
     analysis?.overallRiskScore ??
     (riskScores.length
       ? Math.round(
-          riskScores.reduce(
-            (total, score) => total + Number(score),
-            0
-          ) / riskScores.length
-        )
+        riskScores.reduce(
+          (total, score) => total + Number(score),
+          0
+        ) / riskScores.length
+      )
       : 0);
 
   const overallRisk =
@@ -4696,9 +5063,9 @@ function ContractsPage({
     } catch (err) {
       setDeleteError(
         err?.response?.data?.detail ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Unable to delete contract. Please try again."
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unable to delete contract. Please try again."
       );
     } finally {
       setIsDeleting(false);
@@ -4711,10 +5078,10 @@ function ContractsPage({
     type: String(contract.file_type || "document").toUpperCase(),
     date: contract.created_at
       ? new Date(contract.created_at).toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
       : "Unknown date",
     status: contract.status || "Unknown",
     risk: String(contract.overall_risk || "unrated").toLowerCase(),
@@ -5060,21 +5427,21 @@ function SettingsPage({
 
   const initials = currentUser?.full_name
     ? currentUser.full_name
-        .trim()
-        .split(/\s+/)
-        .map((p) => p[0]?.toUpperCase())
-        .slice(0, 2)
-        .join("") || "TS"
+      .trim()
+      .split(/\s+/)
+      .map((p) => p[0]?.toUpperCase())
+      .slice(0, 2)
+      .join("") || "TS"
     : currentUser?.email
-    ? currentUser.email.slice(0, 2).toUpperCase()
-    : "TS";
+      ? currentUser.email.slice(0, 2).toUpperCase()
+      : "TS";
 
   const memberSince = currentUser?.created_at
     ? new Date(currentUser.created_at).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
     : "Active session";
 
   return (

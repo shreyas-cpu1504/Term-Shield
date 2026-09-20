@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 25
 
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-flash-lite-latest"
 
     database_url: str = "sqlite+aiosqlite:///storage/term_shield.db"
 

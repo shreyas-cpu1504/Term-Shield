@@ -44,12 +44,60 @@ async def ask_question(
             detail="Extracted document not found.",
         )
 
+    # Handle basic conversational messages locally without Gemini or QA history
+    conv_response = QAService.get_conversational_response(request.question)
+    if conv_response:
+        return QuestionResponse(
+            file_id=file_id,
+            question=request.question,
+            answer=conv_response,
+            evidence=[],
+            confidence=1.0,
+        )
+
     clauses = await _load_clauses(file_id, db)
+
+    # Fetch most recent QA exchange for conversational context (e.g. language/format follow-up instructions)
+    history_res = await db.execute(
+        select(QAHistory)
+        .where(
+            QAHistory.contract_id == file_id,
+            QAHistory.user_id == current_user.id,
+        )
+        .order_by(QAHistory.created_at.desc())
+        .limit(1)
+    )
+    last_qa = history_res.scalars().first()
+
+    previous_question = last_qa.question if last_qa else None
+    previous_answer = last_qa.answer if last_qa else None
+    previous_evidence = None
+    if last_qa and last_qa.evidence_json:
+        try:
+            ev_list = json.loads(last_qa.evidence_json)
+            from app.services.retrieval_service import RetrievedClause
+            previous_evidence = [
+                RetrievedClause(
+                    clause_id=e.get("clause_id", ""),
+                    clause_number=e.get("clause_number"),
+                    title=e.get("title"),
+                    text=e.get("text", ""),
+                    score=e.get("relevance_score", 0.9),
+                )
+                for e in ev_list
+            ]
+        except Exception:
+            previous_evidence = None
 
     response = QAService.answer(
         file_id=file_id,
         question=request.question,
         clauses=clauses,
+        contract_name=contract.filename,
+        contract_summary=contract.summary_json,
+        previous_question=previous_question,
+        previous_answer=previous_answer,
+        previous_evidence=previous_evidence,
     )
 
     qa_record = QAHistory(

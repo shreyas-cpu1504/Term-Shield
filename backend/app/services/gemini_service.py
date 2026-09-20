@@ -40,26 +40,53 @@ class GeminiService:
         )
 
     @classmethod
+    def _load_model(cls) -> str:
+        settings = get_settings()
+        if getattr(settings, "gemini_model", None):
+            return settings.gemini_model.strip()
+
+        env_val = os.environ.get("GEMINI_MODEL")
+        if env_val and env_val.strip():
+            return env_val.strip()
+
+        return "gemini-flash-lite-latest"
+
+    @classmethod
     def generate(cls, prompt: str) -> str:
         api_key = cls._load_api_key()
+        primary_model = cls._load_model()
 
         client = genai.Client(
-    api_key=api_key,
-    http_options={
-        "timeout": 30000
-    },
-)
-
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt,
+            api_key=api_key,
+            http_options={
+                "timeout": 30000
+            },
         )
 
-        text = getattr(response, "text", None)
+        models_to_try = [primary_model]
+        if primary_model != "gemini-flash-lite-latest":
+            models_to_try.append("gemini-flash-lite-latest")
 
-        if not text:
-            raise RuntimeError(
-                "Gemini returned an empty response."
-            )
+        last_error = None
+        for model in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                text = getattr(response, "text", None)
+                if text and text.strip():
+                    return text.strip()
+            except Exception as e:
+                last_error = e
+                # Only retry with fallback model if it was a rate-limit/quota error
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    continue
+                raise e
 
-        return text.strip()
+        if last_error:
+            raise last_error
+
+        raise RuntimeError(
+            "Gemini returned an empty response."
+        )

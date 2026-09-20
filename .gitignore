@@ -20,3 +20,6 @@ outputs/
 Thumbs.db
 # Contract uploads and extracted documents
 backend/storage/
+
+# Runtime contract storage
+storage/
