@@ -43,6 +43,11 @@ import {
   TrendingUp,
   Clock,
   Share2,
+  User,
+  Camera,
+  HelpCircle,
+  Info,
+  ChevronRight,
 } from "lucide-react";
 
 import {
@@ -93,6 +98,45 @@ const acceptedFileTypes = [
 // Module-scoped in-flight exchange promise to deduplicate execution across React 18 StrictMode double-mounting
 let inFlightOAuthExchange = null;
 
+function formatContractDate(dateStr) {
+  if (!dateStr) return "Unknown date";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "Unknown date";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "Unknown date";
+  }
+}
+
+function formatNotificationTime(dateStr) {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const diffMs = now - d;
+    if (diffMs < 0) return "Just now";
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    const diffDays = Math.floor(diffHrs / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
 function App() {
   const [showSplash, setShowSplash] = useState(() => {
     // If returning from an OAuth callback with an exchange code or error, bypass splash screen
@@ -118,6 +162,42 @@ function App() {
   const [selectedAnalysisError, setSelectedAnalysisError] = useState("");
   const [currentUser, setCurrentUser] = useState(null);
   const [userLoading, setUserLoading] = useState(false);
+
+  // Global search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
+  const searchContainerRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Notifications state
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notificationsRef = useRef(null);
+  const [readNotificationIds, setReadNotificationIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem("termShield_read_notifications");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Profile customization override state (stored in localStorage)
+  const [profileOverride, setProfileOverride] = useState(() => {
+    try {
+      const saved = localStorage.getItem("termShield_profile_override");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Profile dropdown menu state
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useRef(null);
+
+  // Active modal state: null | "editProfile" | "help" | "about"
+  const [activeModal, setActiveModal] = useState(null);
 
   const fetchCurrentUser = async () => {
     setUserLoading(true);
@@ -289,6 +369,12 @@ function App() {
     setActivePage("dashboard");
     setAuthScreen("login");
     setAuthState("unauthenticated");
+    setSearchQuery("");
+    setIsSearchOpen(false);
+    setSearchSelectedIndex(-1);
+    setIsNotificationsOpen(false);
+    setIsProfileDropdownOpen(false);
+    setActiveModal(null);
   };
 
   const handleNavigation = (id) => {
@@ -327,6 +413,208 @@ function App() {
       setSelectedAnalysisError("");
     }
     await refreshContracts();
+  };
+
+  // Close dropdowns on outside click or Escape key, focus search on Cmd/Ctrl+K
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target)
+      ) {
+        setIsSearchOpen(false);
+      }
+      if (
+        notificationsRef.current &&
+        !notificationsRef.current.contains(event.target)
+      ) {
+        setIsNotificationsOpen(false);
+      }
+      if (
+        profileDropdownRef.current &&
+        !profileDropdownRef.current.contains(event.target)
+      ) {
+        setIsProfileDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsSearchOpen(false);
+        setIsNotificationsOpen(false);
+        setIsProfileDropdownOpen(false);
+        setActiveModal(null);
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        if (searchQuery.trim()) {
+          setIsSearchOpen(true);
+        }
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [searchQuery]);
+
+  // Global search filtering against user contracts (case-insensitive partial match)
+  const filteredContracts = contracts.filter((c) => {
+    if (!searchQuery.trim()) return false;
+    const q = searchQuery.trim().toLowerCase();
+    const filename = String(c?.filename || "").toLowerCase();
+    const name = String(c?.name || "").toLowerCase();
+    const title = String(c?.title || "").toLowerCase();
+    return filename.includes(q) || name.includes(q) || title.includes(q);
+  });
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsSearchOpen(true);
+      setSearchSelectedIndex((prev) =>
+        prev < filteredContracts.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsSearchOpen(true);
+      setSearchSelectedIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredContracts.length - 1
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (
+        searchSelectedIndex >= 0 &&
+        searchSelectedIndex < filteredContracts.length
+      ) {
+        const target = filteredContracts[searchSelectedIndex];
+        handleContractSelect(target.id);
+        setIsSearchOpen(false);
+        setSearchSelectedIndex(-1);
+      } else if (filteredContracts.length > 0) {
+        handleContractSelect(filteredContracts[0].id);
+        setIsSearchOpen(false);
+        setSearchSelectedIndex(-1);
+      }
+    } else if (e.key === "Escape") {
+      setIsSearchOpen(false);
+      setSearchSelectedIndex(-1);
+    }
+  };
+
+  // Generate meaningful application notifications from real contract & risk data
+  const notifications = (() => {
+    if (!Array.isArray(contracts) || contracts.length === 0) return [];
+    const list = [];
+
+    contracts.forEach((c) => {
+      const contractId = c.id;
+      const filename = c.filename || c.name || "Contract";
+      const risk = String(c.overall_risk || "").toLowerCase();
+      const score = typeof c.overall_risk_score === "number" ? c.overall_risk_score : null;
+      const status = String(c.status || "").toLowerCase();
+      const createdAt = c.created_at || null;
+
+      // High-risk contract alert
+      if (risk === "high" || (score !== null && score >= 70)) {
+        list.push({
+          id: `high_risk_${contractId}`,
+          contractId,
+          type: "high_risk",
+          title: "High-risk contract detected",
+          message: `"${filename}" flagged with high-risk clauses (Score: ${score !== null ? `${score}/100` : "High"}). Requires immediate review.`,
+          date: createdAt,
+          priority: 1,
+        });
+      }
+      // Medium-risk review notification
+      else if (risk === "medium" || risk === "med" || (score !== null && score >= 40 && score < 70)) {
+        list.push({
+          id: `med_risk_${contractId}`,
+          contractId,
+          type: "medium_risk",
+          title: "Medium-risk contract requires review",
+          message: `"${filename}" contains clauses flagged for moderate scrutiny.`,
+          date: createdAt,
+          priority: 2,
+        });
+      }
+
+      // Analysis completed notification
+      if (status === "analyzed" || status === "ready" || risk || score !== null) {
+        list.push({
+          id: `analysis_ready_${contractId}`,
+          contractId,
+          type: "completed",
+          title: "Contract analysis completed",
+          message: `Intelligence summary and clause risk breakdown are ready for "${filename}".`,
+          date: createdAt,
+          priority: 3,
+        });
+      }
+
+      // New contract added notification
+      list.push({
+        id: `new_contract_${contractId}`,
+        contractId,
+        type: "added",
+        title: "New contract added",
+        message: `"${filename}" was uploaded and added to your workspace library.`,
+        date: createdAt,
+        priority: 4,
+      });
+    });
+
+    // Prioritize high-risk alerts first, then newest chronologically
+    return list
+      .sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+        const timeA = a.date ? new Date(a.date).getTime() : 0;
+        const timeB = b.date ? new Date(b.date).getTime() : 0;
+        return timeB - timeA;
+      })
+      .slice(0, 15);
+  })();
+
+  const unreadCount = notifications.filter(
+    (n) => !readNotificationIds.includes(n.id)
+  ).length;
+
+  const markNotificationAsRead = (id) => {
+    setReadNotificationIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const updated = [...prev, id];
+      try {
+        localStorage.setItem("termShield_read_notifications", JSON.stringify(updated));
+      } catch {
+        // ignore storage errors
+      }
+      return updated;
+    });
+  };
+
+  const markAllNotificationsAsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    setReadNotificationIds(allIds);
+    try {
+      localStorage.setItem("termShield_read_notifications", JSON.stringify(allIds));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    markNotificationAsRead(notification.id);
+    if (notification.contractId) {
+      handleContractSelect(notification.contractId);
+    }
+    setIsNotificationsOpen(false);
   };
 
   if (showSplash) {
@@ -408,19 +696,27 @@ function App() {
     );
   }
 
-  const userInitials = currentUser?.full_name
-    ? currentUser.full_name
-      .trim()
-      .split(/\s+/)
-      .map((part) => part[0]?.toUpperCase())
-      .slice(0, 2)
-      .join("") || "TS"
+  const currentFullName =
+    profileOverride.customFullName !== undefined &&
+    profileOverride.customFullName !== null &&
+    profileOverride.customFullName.trim() !== ""
+      ? profileOverride.customFullName.trim()
+      : currentUser?.full_name?.trim() || "";
+
+  const userDisplayName =
+    currentFullName || currentUser?.email || "Account";
+
+  const userInitials = currentFullName
+    ? currentFullName
+        .split(/\s+/)
+        .map((part) => part[0]?.toUpperCase())
+        .slice(0, 2)
+        .join("") || "TS"
     : currentUser?.email
       ? currentUser.email.slice(0, 2).toUpperCase()
       : "TS";
 
-  const userDisplayName =
-    currentUser?.full_name?.trim() || currentUser?.email || "Account";
+  const userPhoto = profileOverride.profilePhoto || null;
 
   return (
     <div className="app-shell">
@@ -478,39 +774,146 @@ function App() {
         <div className="sidebar-bottom">
           <button
             type="button"
-            className={`nav-item ${activePage === "settings" ? "active" : ""
-              }`}
+            className={`nav-item ${activePage === "settings" ? "active" : ""}`}
             onClick={() => handleNavigation("settings")}
           >
             <Settings size={18} />
             <span>Settings</span>
           </button>
 
-          <button
-            className="sidebar-profile"
-            type="button"
-            onClick={() => handleNavigation("settings")}
-            aria-label="Account Settings"
-            title="Open Settings"
-            style={{
-              width: "100%",
-              border: 0,
-              background: "transparent",
-              color: "inherit",
-              font: "inherit",
-              textAlign: "left",
-              cursor: "pointer",
-            }}
-          >
-            <div className="profile-avatar">{userInitials}</div>
+          <div className="sidebar-profile-wrapper" ref={profileDropdownRef}>
+            <button
+              className={`sidebar-profile ${isProfileDropdownOpen ? "active" : ""}`}
+              type="button"
+              onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
+              aria-label="Account Settings"
+              title="Account Menu"
+              aria-expanded={isProfileDropdownOpen}
+              style={{
+                width: "100%",
+                border: 0,
+                background: "transparent",
+                color: "inherit",
+                font: "inherit",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <div className="profile-avatar">
+                {userPhoto ? (
+                  <img src={userPhoto} alt={userDisplayName} className="profile-avatar-img" />
+                ) : (
+                  userInitials
+                )}
+              </div>
 
-            <div className="profile-info">
-              <strong>{userDisplayName}</strong>
-              <span>{currentUser?.email || "Personal workspace"}</span>
-            </div>
+              <div className="profile-info">
+                <strong>{userDisplayName}</strong>
+                <span>{currentUser?.email || "Personal workspace"}</span>
+              </div>
 
-            <ChevronDown size={16} />
-          </button>
+              <ChevronDown
+                size={16}
+                className={`profile-dropdown-arrow ${isProfileDropdownOpen ? "open" : ""}`}
+              />
+            </button>
+
+            {isProfileDropdownOpen && (
+              <div className="sidebar-profile-dropdown" role="menu">
+                <div
+                  className="sidebar-profile-dropdown-header"
+                  onClick={() => {
+                    setIsProfileDropdownOpen(false);
+                    handleNavigation("settings");
+                  }}
+                  title="View Settings Profile"
+                >
+                  <div className="profile-avatar large">
+                    {userPhoto ? (
+                      <img src={userPhoto} alt={userDisplayName} className="profile-avatar-img" />
+                    ) : (
+                      userInitials
+                    )}
+                  </div>
+                  <div className="profile-details">
+                    <strong>{userDisplayName}</strong>
+                    <span>{currentUser?.email || "Personal workspace"}</span>
+                  </div>
+                </div>
+
+                <div className="profile-dropdown-divider" />
+
+                <div className="profile-dropdown-menu">
+                  <button
+                    type="button"
+                    className="profile-dropdown-item"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      setActiveModal("editProfile");
+                    }}
+                    role="menuitem"
+                  >
+                    <User size={15} />
+                    <span>Edit Profile</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      setActiveModal("help");
+                    }}
+                    role="menuitem"
+                  >
+                    <HelpCircle size={15} />
+                    <span>Help &amp; Support</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      setActiveModal("about");
+                    }}
+                    role="menuitem"
+                  >
+                    <Info size={15} />
+                    <span>About Term Shield</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      handleNavigation("settings");
+                    }}
+                    role="menuitem"
+                  >
+                    <Settings size={15} />
+                    <span>Settings</span>
+                  </button>
+
+                  <div className="profile-dropdown-divider" />
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item logout"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      handleLogout();
+                    }}
+                    role="menuitem"
+                  >
+                    <LogOut size={15} />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -547,16 +950,261 @@ function App() {
               <span>Ask My T&C</span>
             </button>
 
-            <div className="search-box">
-              <Search size={17} />
-              <input placeholder="Search contracts..." />
-              <kbd>⌘ K</kbd>
+            {/* SEARCH */}
+            <div className="search-box-wrapper" ref={searchContainerRef}>
+              <div
+                className={`search-box ${isSearchOpen && searchQuery ? "focused" : ""}`}
+                onClick={() => searchInputRef.current?.focus()}
+              >
+                <Search size={17} />
+                <input
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setIsSearchOpen(true);
+                    setSearchSelectedIndex(-1);
+                  }}
+                  onFocus={() => {
+                    if (searchQuery.trim()) {
+                      setIsSearchOpen(true);
+                    }
+                  }}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search contracts..."
+                  aria-label="Search contracts"
+                  aria-expanded={isSearchOpen && Boolean(searchQuery.trim())}
+                  role="combobox"
+                  aria-autocomplete="list"
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    className="search-clear-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearchQuery("");
+                      setIsSearchOpen(false);
+                      setSearchSelectedIndex(-1);
+                      searchInputRef.current?.focus();
+                    }}
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                ) : (
+                  <kbd>⌘ K</kbd>
+                )}
+              </div>
+
+              {/* SEARCH DROPDOWN */}
+              {isSearchOpen && searchQuery.trim().length > 0 && (
+                <div
+                  className="search-dropdown"
+                  role="listbox"
+                  aria-label="Search results"
+                >
+                  <div className="search-dropdown-header">
+                    <span>
+                      {filteredContracts.length === 0
+                        ? "No matches"
+                        : `${filteredContracts.length} contract${filteredContracts.length === 1 ? "" : "s"} found`}
+                    </span>
+                    <span className="search-shortcut-hint">
+                      ↑↓ to navigate • ↵ to open
+                    </span>
+                  </div>
+
+                  {filteredContracts.length === 0 ? (
+                    <div className="search-empty">
+                      <FileText size={22} className="search-empty-icon" />
+                      <p className="search-empty-title">No contracts found</p>
+                      <span className="search-empty-subtitle">
+                        No contract matches &ldquo;{searchQuery}&rdquo; in your workspace
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="search-results-list">
+                      {filteredContracts.map((c, index) => {
+                        const isSelected = index === searchSelectedIndex;
+                        const risk = String(c?.overall_risk || "").toLowerCase();
+                        const score = typeof c?.overall_risk_score === "number" ? c.overall_risk_score : null;
+                        const dateStr = formatContractDate(c?.created_at);
+                        const fileType = (c?.file_type || "doc").toUpperCase();
+
+                        return (
+                          <div
+                            key={c.id || index}
+                            className={`search-result-item ${isSelected ? "selected" : ""}`}
+                            onClick={() => {
+                              handleContractSelect(c.id);
+                              setIsSearchOpen(false);
+                              setSearchSelectedIndex(-1);
+                            }}
+                            onMouseEnter={() => setSearchSelectedIndex(index)}
+                            role="option"
+                            aria-selected={isSelected}
+                          >
+                            <div className="search-result-icon">
+                              <FileText size={17} />
+                            </div>
+
+                            <div className="search-result-main">
+                              <strong className="search-result-name">
+                                {c.filename || c.name || "Untitled Contract"}
+                              </strong>
+                              <div className="search-result-meta">
+                                <span>{dateStr}</span>
+                                <span>•</span>
+                                <span>{fileType}</span>
+                              </div>
+                            </div>
+
+                            <div className="search-result-badge-wrap">
+                              {risk === "high" || (score !== null && score >= 70) ? (
+                                <span className="search-risk-badge high">
+                                  HIGH RISK{score !== null ? ` • ${score}` : ""}
+                                </span>
+                              ) : risk === "medium" || risk === "med" || (score !== null && score >= 40) ? (
+                                <span className="search-risk-badge medium">
+                                  MED RISK{score !== null ? ` • ${score}` : ""}
+                                </span>
+                              ) : risk === "low" || (score !== null && score < 40) ? (
+                                <span className="search-risk-badge low">
+                                  LOW RISK{score !== null ? ` • ${score}` : ""}
+                                </span>
+                              ) : (
+                                <span className="search-risk-badge neutral">
+                                  DOC
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            <button className="icon-button" type="button">
-              <Bell size={18} />
-              <span className="notification-dot" />
-            </button>
+            {/* NOTIFICATIONS */}
+            <div className="notifications-wrapper" ref={notificationsRef}>
+              <button
+                className={`icon-button notification-bell-btn ${isNotificationsOpen ? "active" : ""}`}
+                type="button"
+                onClick={() => setIsNotificationsOpen((prev) => !prev)}
+                aria-label="Notifications"
+                aria-expanded={isNotificationsOpen}
+                title="Notifications"
+              >
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span
+                    className="notification-badge"
+                    aria-label={`${unreadCount} unread notifications`}
+                  >
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* NOTIFICATIONS DROPDOWN */}
+              {isNotificationsOpen && (
+                <div
+                  className="notifications-dropdown"
+                  role="region"
+                  aria-label="Notifications"
+                >
+                  <div className="notifications-dropdown-header">
+                    <div className="notifications-title-row">
+                      <h4>Notifications</h4>
+                      {unreadCount > 0 && (
+                        <span className="notifications-unread-pill">
+                          {unreadCount} unread
+                        </span>
+                      )}
+                    </div>
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        className="mark-all-read-btn"
+                        onClick={markAllNotificationsAsRead}
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="notifications-list">
+                    {notifications.length === 0 ? (
+                      <div className="notifications-empty">
+                        <div className="notifications-empty-icon">
+                          <CheckCircle2 size={24} />
+                        </div>
+                        <h4>You&apos;re all caught up</h4>
+                        <p>No contract alerts or notifications at this time.</p>
+                      </div>
+                    ) : (
+                      notifications.map((n) => {
+                        const isRead = readNotificationIds.includes(n.id);
+                        return (
+                          <div
+                            key={n.id}
+                            className={`notification-item ${isRead ? "read" : "unread"}`}
+                            onClick={() => handleNotificationClick(n)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleNotificationClick(n);
+                              }
+                            }}
+                          >
+                            <div className={`notification-icon-wrap ${n.type}`}>
+                              {n.type === "high_risk" ? (
+                                <ShieldAlert size={16} />
+                              ) : n.type === "medium_risk" ? (
+                                <AlertCircle size={16} />
+                              ) : n.type === "completed" ? (
+                                <CheckCircle2 size={16} />
+                              ) : (
+                                <FileText size={16} />
+                              )}
+                            </div>
+
+                            <div className="notification-content">
+                              <div className="notification-item-header">
+                                <span className="notification-item-title">
+                                  {n.title}
+                                </span>
+                                {n.date && (
+                                  <span className="notification-item-time">
+                                    {formatNotificationTime(n.date)}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="notification-item-msg">
+                                {n.message}
+                              </p>
+                            </div>
+
+                            {!isRead && (
+                              <span
+                                className="notification-unread-dot"
+                                title="Unread"
+                              />
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <button
               className="top-profile"
@@ -565,7 +1213,11 @@ function App() {
               title="Open Settings"
               aria-label="User Settings"
             >
-              {userInitials}
+              {userPhoto ? (
+                <img src={userPhoto} alt={userDisplayName} className="top-profile-img" />
+              ) : (
+                userInitials
+              )}
             </button>
           </div>
         </header>
@@ -664,6 +1316,10 @@ function App() {
               userLoading={userLoading}
               onLogout={handleLogout}
               onRefreshUser={fetchCurrentUser}
+              userDisplayName={userDisplayName}
+              userPhoto={userPhoto}
+              userInitials={userInitials}
+              onEditProfile={() => setActiveModal("editProfile")}
             />
           )}
 
@@ -683,6 +1339,43 @@ function App() {
             )}
         </main>
       </div>
+
+      {/* EDIT PROFILE MODAL */}
+      {activeModal === "editProfile" && (
+        <EditProfileModal
+          initialName={currentFullName}
+          initialPhoto={userPhoto}
+          userInitials={userInitials}
+          userEmail={currentUser?.email}
+          onClose={() => setActiveModal(null)}
+          onSave={(newName, newPhoto) => {
+            const updated = {
+              customFullName: newName.trim(),
+              profilePhoto: newPhoto,
+            };
+            setProfileOverride(updated);
+            try {
+              localStorage.setItem(
+                "termShield_profile_override",
+                JSON.stringify(updated)
+              );
+            } catch {
+              // ignore
+            }
+            setActiveModal(null);
+          }}
+        />
+      )}
+
+      {/* HELP & SUPPORT MODAL */}
+      {activeModal === "help" && (
+        <HelpSupportModal onClose={() => setActiveModal(null)} />
+      )}
+
+      {/* ABOUT TERM SHIELD MODAL */}
+      {activeModal === "about" && (
+        <AboutTermShieldModal onClose={() => setActiveModal(null)} />
+      )}
     </div>
   );
 }
@@ -5366,6 +6059,10 @@ function SettingsPage({
   userLoading,
   onLogout,
   onRefreshUser,
+  userDisplayName,
+  userPhoto,
+  userInitials,
+  onEditProfile,
 }) {
   const [preferences, setPreferences] = useState(() => {
     try {
@@ -5425,7 +6122,7 @@ function SettingsPage({
     }
   };
 
-  const initials = currentUser?.full_name
+  const initials = userInitials || (currentUser?.full_name
     ? currentUser.full_name
       .trim()
       .split(/\s+/)
@@ -5434,7 +6131,7 @@ function SettingsPage({
       .join("") || "TS"
     : currentUser?.email
       ? currentUser.email.slice(0, 2).toUpperCase()
-      : "TS";
+      : "TS");
 
   const memberSince = currentUser?.created_at
     ? new Date(currentUser.created_at).toLocaleDateString(undefined, {
@@ -5448,8 +6145,8 @@ function SettingsPage({
     <div className="settings-page">
       <section className="settings-page-header">
         <div>
-          <span className="eyebrow">SETTINGS & PREFERENCES</span>
-          <h2>Workspace & Account</h2>
+          <span className="eyebrow">SETTINGS &amp; PREFERENCES</span>
+          <h2>Workspace &amp; Account</h2>
           <p>
             Review your authenticated user profile, security parameters, and client workspace preferences.
           </p>
@@ -5508,9 +6205,28 @@ function SettingsPage({
             </div>
 
             <div className="settings-profile-badge-row">
-              <div className="settings-large-avatar">{initials}</div>
+              <div className="settings-large-avatar">
+                {userPhoto ? (
+                  <img src={userPhoto} alt={userDisplayName || "Profile"} className="settings-avatar-img" />
+                ) : (
+                  initials
+                )}
+              </div>
               <div className="settings-profile-main">
-                <h4>{currentUser.full_name || "Term Shield User"}</h4>
+                <div className="settings-profile-title-row">
+                  <h4>{userDisplayName || currentUser.full_name || "Term Shield User"}</h4>
+                  {onEditProfile && (
+                    <button
+                      type="button"
+                      className="secondary-button edit-profile-badge-btn"
+                      onClick={onEditProfile}
+                      title="Edit Profile"
+                    >
+                      <User size={13} />
+                      <span>Edit Profile</span>
+                    </button>
+                  )}
+                </div>
                 <p>{currentUser.email}</p>
                 <div className="settings-tags">
                   <span className={`settings-status-pill ${currentUser.is_active ? "active" : "inactive"}`}>
@@ -5528,7 +6244,7 @@ function SettingsPage({
             <div className="settings-fields-grid">
               <div className="settings-field-item">
                 <span className="field-label">FULL NAME</span>
-                <span className="field-value">{currentUser.full_name || "Not specified"}</span>
+                <span className="field-value">{userDisplayName || currentUser.full_name || "Not specified"}</span>
               </div>
 
               <div className="settings-field-item">
@@ -5562,8 +6278,8 @@ function SettingsPage({
                 <ShieldCheck size={18} />
               </div>
               <div>
-                <span className="card-label">DATA & ACCESS SECURITY</span>
-                <h3>Authentication & Security</h3>
+                <span className="card-label">DATA &amp; ACCESS SECURITY</span>
+                <h3>Authentication &amp; Security</h3>
               </div>
             </div>
 
@@ -5643,8 +6359,11 @@ function SettingsPage({
             <div className="preferences-grid">
               <div className="preference-group">
                 <label htmlFor="pref-risk-sensitivity">
-                  Default Risk Sensitivity
-                  <span className="pref-hint">Adjusts how strict the initial contract risk triage appears</span>
+                  <span className="pref-title-with-icon">
+                    Default Risk Sensitivity
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Controls how sensitive Term Shield is when identifying potential contract risks.</span>
                 </label>
                 <select
                   id="pref-risk-sensitivity"
@@ -5659,8 +6378,11 @@ function SettingsPage({
 
               <div className="preference-group">
                 <label htmlFor="pref-clause-view">
-                  Clause Explorer Default Layout
-                  <span className="pref-hint">Choose how segmented clauses are arranged initially</span>
+                  <span className="pref-title-with-icon">
+                    Clause Explorer Default Layout
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Controls how clause information is displayed when Clause Explorer opens.</span>
                 </label>
                 <select
                   id="pref-clause-view"
@@ -5674,8 +6396,11 @@ function SettingsPage({
 
               <div className="preference-group">
                 <label htmlFor="pref-date-format">
-                  Date &amp; Timestamp Display
-                  <span className="pref-hint">Format for contract ingestion dates</span>
+                  <span className="pref-title-with-icon">
+                    Date &amp; Timestamp Display
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Controls how contract and analysis dates are displayed throughout the workspace.</span>
                 </label>
                 <select
                   id="pref-date-format"
@@ -5689,8 +6414,11 @@ function SettingsPage({
 
               <div className="preference-toggle-group">
                 <div className="toggle-label-wrap">
-                  <strong>Auto-analyze upon upload</strong>
-                  <span>Automatically trigger clause segmentation and risk scoring when a file is ingested</span>
+                  <span className="pref-title-with-icon">
+                    <strong>Auto-analyze upon upload</strong>
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span>Automatically analyze newly uploaded contracts for clauses and risk signals.</span>
                 </div>
                 <label className="toggle-switch">
                   <input
@@ -5716,6 +6444,485 @@ function SettingsPage({
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ==============================================
+   EDIT PROFILE MODAL
+============================================== */
+
+function EditProfileModal({
+  initialName,
+  initialPhoto,
+  userInitials,
+  userEmail,
+  onClose,
+  onSave,
+}) {
+  const [name, setName] = useState(initialName || "");
+  const [photo, setPhoto] = useState(initialPhoto || null);
+  const fileInputRef = useRef(null);
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file (JPG, PNG, WebP).");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      alert("Image size should be under 3MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setPhoto(event.target?.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setPhoto(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(name, photo);
+  };
+
+  return (
+    <div className="ts-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="ts-modal-dialog edit-profile-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="ts-modal-header">
+          <div>
+            <span className="eyebrow">USER PROFILE</span>
+            <h3>Edit Profile</h3>
+            <p>Update your display name and personal avatar</p>
+          </div>
+          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="edit-profile-form">
+          {/* Photo Section */}
+          <div className="edit-profile-avatar-row">
+            <div className="edit-avatar-container">
+              {photo ? (
+                <img src={photo} alt="Profile" className="edit-avatar-img" />
+              ) : (
+                <div className="edit-avatar-initials">{userInitials}</div>
+              )}
+            </div>
+
+            <div className="edit-avatar-controls">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png, image/jpeg, image/webp"
+                onChange={handlePhotoSelect}
+                style={{ display: "none" }}
+              />
+              <div className="edit-avatar-btn-group">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Camera size={14} />
+                  <span>{photo ? "Change Photo" : "Upload Photo"}</span>
+                </button>
+                {photo && (
+                  <button
+                    type="button"
+                    className="secondary-button text-danger"
+                    onClick={handleRemovePhoto}
+                  >
+                    <Trash2 size={14} />
+                    <span>Remove</span>
+                  </button>
+                )}
+              </div>
+              <span className="edit-avatar-hint">
+                Recommended 1:1 square. Stored locally in your browser.
+              </span>
+            </div>
+          </div>
+
+          {/* Name Field */}
+          <div className="edit-profile-field">
+            <label htmlFor="edit-profile-name">
+              Full Name / Display Name
+            </label>
+            <input
+              id="edit-profile-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Jane Doe"
+              required
+            />
+          </div>
+
+          {/* Email Field (Read-only) */}
+          <div className="edit-profile-field">
+            <label htmlFor="edit-profile-email">
+              Email Address <span className="read-only-tag">(Read-only)</span>
+            </label>
+            <input
+              id="edit-profile-email"
+              type="email"
+              value={userEmail || ""}
+              readOnly
+              disabled
+              className="disabled-input"
+            />
+            <span className="field-hint">
+              Authentication email is managed by your sign-in provider and cannot be changed here.
+            </span>
+          </div>
+
+          {/* Modal Footer */}
+          <div className="ts-modal-footer">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="primary-button"
+            >
+              <CheckCircle2 size={16} />
+              <span>Save Changes</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ==============================================
+   HELP & SUPPORT MODAL
+============================================== */
+
+function HelpSupportModal({ onClose }) {
+  const [openFaqIndex, setOpenFaqIndex] = useState(null);
+
+  const toggleFaq = (index) => {
+    setOpenFaqIndex((prev) => (prev === index ? null : index));
+  };
+
+  const faqs = [
+    {
+      q: "How do I upload a contract?",
+      a: "Navigate to 'Upload Contract' in the sidebar or click 'Upload contract' on the dashboard. Drag and drop any supported file (PDF, TXT, image, audio, video) or enter a live webpage URL, then click Analyze.",
+    },
+    {
+      q: "Where can I see my previous contracts?",
+      a: "All ingested contracts are stored in your workspace library. You can view, search, and inspect them from the 'Contracts' section in the sidebar or under the Recent Contracts table on your Dashboard.",
+    },
+    {
+      q: "How does Ask My T&C work?",
+      a: "Select a contract and click 'Ask My T&C' in the header or sidebar. Type questions regarding obligations, cancellation charges, deadlines, or risks. The AI assistant answers using strictly verified clauses and can explain terms in regional languages like Telugu, Hindi, Spanish, and English.",
+    },
+    {
+      q: "Can Term Shield answer questions unrelated to my contract?",
+      a: "Term Shield prioritizes contract evidence grounding. If a topic is not present in the contract text, the assistant explicitly states that rather than fabricating information.",
+    },
+    {
+      q: "Can I change my profile information?",
+      a: "Yes. Click your profile avatar at the bottom of the sidebar, select 'Edit Profile', and you can update your display name or upload a custom profile avatar photo.",
+    },
+    {
+      q: "How do I reset my workspace preferences?",
+      a: "Navigate to Settings from the sidebar or profile dropdown, scroll to 'Workspace Preferences', and click 'Reset to Defaults'. This restores sensitivity without modifying your profile, photo, or login session.",
+    },
+  ];
+
+  return (
+    <div className="ts-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="ts-modal-dialog help-modal-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="ts-modal-header">
+          <div>
+            <span className="eyebrow">HELP &amp; DOCUMENTATION</span>
+            <h3>Help &amp; Support Center</h3>
+            <p>Explore Term Shield workflows, supported inputs, risk analysis, and common FAQs.</p>
+          </div>
+          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="ts-modal-body">
+          {/* A. HOW TERM SHIELD WORKS */}
+          <section className="help-section">
+            <h4 className="help-section-title">A. How Term Shield Works</h4>
+            <p className="help-section-desc">
+              Term Shield converts complex, lengthy legal agreements into actionable intelligence through an automated 6-step pipeline:
+            </p>
+            <div className="help-workflow-grid">
+              <div className="help-step-card">
+                <span className="help-step-number">1</span>
+                <strong>Upload Contract</strong>
+                <p>Ingest document files, audio, video recordings, or webpage URLs.</p>
+              </div>
+              <div className="help-step-card">
+                <span className="help-step-number">2</span>
+                <strong>Extract Content</strong>
+                <p>Extract text using multimodal OCR, transcription, and HTML parsing.</p>
+              </div>
+              <div className="help-step-card">
+                <span className="help-step-number">3</span>
+                <strong>Identify Clauses</strong>
+                <p>Segment text into clauses, categories, and legal classifications.</p>
+              </div>
+              <div className="help-step-card">
+                <span className="help-step-number">4</span>
+                <strong>Analyze Risks</strong>
+                <p>Classify risk severity (High, Medium, Low) and calculate a 0–100 risk score.</p>
+              </div>
+              <div className="help-step-card">
+                <span className="help-step-number">5</span>
+                <strong>Generate Summary</strong>
+                <p>Produce executive takeaways, customer obligations, and dependency maps.</p>
+              </div>
+              <div className="help-step-card">
+                <span className="help-step-number">6</span>
+                <strong>Ask My T&amp;C</strong>
+                <p>Ask natural questions grounded strictly in contract clauses.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* B. SUPPORTED INPUTS */}
+          <section className="help-section">
+            <h4 className="help-section-title">B. Supported Inputs</h4>
+            <div className="help-inputs-grid">
+              <div className="help-input-card">
+                <div className="input-card-header">
+                  <FileText size={18} />
+                  <strong>Text &amp; Documents</strong>
+                </div>
+                <span className="input-format-badge">.pdf, .txt, .doc, .docx</span>
+                <p>Native or scanned contracts, vendor agreements, and leases.</p>
+              </div>
+
+              <div className="help-input-card">
+                <div className="input-card-header">
+                  <Image size={18} />
+                  <strong>Image Scans</strong>
+                </div>
+                <span className="input-format-badge">.png, .jpg, .jpeg</span>
+                <p>High-resolution contract photographs and document page scans via OCR.</p>
+              </div>
+
+              <div className="help-input-card">
+                <div className="input-card-header">
+                  <Mic size={18} />
+                  <strong>Audio Agreements</strong>
+                </div>
+                <span className="input-format-badge">.wav, .mp3, .ogg</span>
+                <p>Voice dictations, oral contract discussions, and recorded consent.</p>
+              </div>
+
+              <div className="help-input-card">
+                <div className="input-card-header">
+                  <Video size={18} />
+                  <strong>Video Recordings</strong>
+                </div>
+                <span className="input-format-badge">.mp4, .mov, .avi</span>
+                <p>Video presentations, legal consent walkthroughs, and conference terms.</p>
+              </div>
+
+              <div className="help-input-card">
+                <div className="input-card-header">
+                  <Link size={18} />
+                  <strong>Webpages &amp; URLs</strong>
+                </div>
+                <span className="input-format-badge">HTTP / HTTPS</span>
+                <p>Live Terms of Service, Privacy Policies, and online SaaS agreements.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* C. ASK MY T&C */}
+          <section className="help-section">
+            <h4 className="help-section-title">C. Ask My T&amp;C</h4>
+            <div className="help-callout-card">
+              <div className="help-callout-icon">
+                <MessageSquare size={20} />
+              </div>
+              <div className="help-callout-content">
+                <strong>Grounded Conversational Intelligence</strong>
+                <p>
+                  Ask My T&amp;C enables you to ask direct questions about the currently active contract. You can inquire about:
+                </p>
+                <ul className="help-list">
+                  <li><strong>Customer obligations</strong> — duties, required notices, and deadlines</li>
+                  <li><strong>Payment terms</strong> — recurring charges, billing cycles, late fees</li>
+                  <li><strong>Cancellation &amp; termination</strong> — penalty fees, early exit clauses, and refund policies</li>
+                  <li><strong>Liabilities &amp; indemnification</strong> — damages caps and legal remedies</li>
+                  <li><strong>Multilingual explanations</strong> — translate and explain terms in Telugu, Hindi, Spanish, or English</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* D. RISK ANALYSIS */}
+          <section className="help-section">
+            <h4 className="help-section-title">D. Risk Analysis</h4>
+            <p className="help-section-desc">
+              Term Shield evaluates contract clauses against standard compliance risks, unilateral rights, and hidden financial obligations:
+            </p>
+            <div className="help-risk-breakdown">
+              <div className="help-risk-tier high">
+                <span className="risk-tier-badge">HIGH RISK</span>
+                <p>Clauses that impose severe liabilities, automatic forfeiture, broad indemnities, or unilateral termination rights.</p>
+              </div>
+              <div className="help-risk-tier medium">
+                <span className="risk-tier-badge">MEDIUM RISK</span>
+                <p>Clauses with ambiguous definitions, short notice periods, auto-renewals, or conditional restrictions.</p>
+              </div>
+              <div className="help-risk-tier low">
+                <span className="risk-tier-badge">LOW RISK</span>
+                <p>Standard mutual protections, confidentiality covenants, governing law, and boilerplate definitions.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* E. CLAUSE EXPLORER */}
+          <section className="help-section">
+            <h4 className="help-section-title">E. Clause Explorer</h4>
+            <p className="help-section-desc">
+              Inspect every segmented clause individually. Use category filters (Payment, Confidentiality, Termination, Liability) or search keywords. Switch between Detailed view for clause text and entity tags, or Compact view for rapid browsing.
+            </p>
+          </section>
+
+          {/* F. REPORTS */}
+          <section className="help-section">
+            <h4 className="help-section-title">F. Reports</h4>
+            <p className="help-section-desc">
+              Access consolidated contract summaries, risk distribution charts, and executive audit overviews ready for presentation or compliance documentation.
+            </p>
+          </section>
+
+          {/* G. COMMON QUESTIONS / FAQ */}
+          <section className="help-section">
+            <h4 className="help-section-title">G. Common Questions / FAQ</h4>
+            <div className="faq-list">
+              {faqs.map((faq, index) => {
+                const isOpen = openFaqIndex === index;
+                return (
+                  <div key={index} className={`faq-item ${isOpen ? "open" : ""}`}>
+                    <button
+                      type="button"
+                      className="faq-question-btn"
+                      onClick={() => toggleFaq(index)}
+                      aria-expanded={isOpen}
+                    >
+                      <span>{faq.q}</span>
+                      <ChevronRight size={16} className={`faq-arrow ${isOpen ? "rotated" : ""}`} />
+                    </button>
+                    {isOpen && (
+                      <div className="faq-answer-panel">
+                        <p>{faq.a}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* H. NEED MORE HELP */}
+          <section className="help-section">
+            <h4 className="help-section-title">H. Need More Help?</h4>
+            <div className="help-support-box">
+              <Sparkles size={16} />
+              <span>Support contact will be available here in the production release.</span>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==============================================
+   ABOUT TERM SHIELD MODAL
+============================================== */
+
+function AboutTermShieldModal({ onClose }) {
+  const capabilities = [
+    "Multi-format contract ingestion",
+    "Clause extraction",
+    "Risk analysis",
+    "Contract summaries",
+    "Clause relationships",
+    "Ask My T&C",
+    "Evidence-grounded answers",
+  ];
+
+  return (
+    <div className="ts-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="ts-modal-dialog about-modal-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="ts-modal-header borderless">
+          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="about-modal-content">
+          {/* Brand Header */}
+          <div className="about-brand-header">
+            <div className="about-brand-mark">
+              <ShieldAlert size={32} />
+            </div>
+            <h2>Term Shield</h2>
+            <p className="about-tagline">Contract Intelligence</p>
+            <span className="about-version-badge">Version 0.1.0</span>
+          </div>
+
+          {/* Description */}
+          <p className="about-description">
+            Term Shield is an AI-powered contract intelligence platform that helps users understand contracts, identify important clauses, analyze potential risks, and ask questions about contract content.
+          </p>
+
+          {/* What Term Shield Does */}
+          <div className="about-features-card">
+            <h4>What Term Shield Does</h4>
+            <ul className="about-features-list">
+              {capabilities.map((cap, idx) => (
+                <li key={idx} className="about-feature-item">
+                  <CheckCircle2 size={16} className="feature-check-icon" />
+                  <span>{cap}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Mission Note */}
+          <div className="about-motto-box">
+            <span>Built for understanding contracts with clarity and confidence.</span>
+          </div>
+
+          {/* Disclaimer */}
+          <div className="about-disclaimer-box">
+            <AlertCircle size={15} />
+            <p>
+              Term Shield provides AI-assisted contract analysis for informational purposes and does not constitute legal advice.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
