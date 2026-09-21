@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   FileText,
   Upload,
+  Shield,
   ShieldAlert,
   ListChecks,
   MessageSquare,
@@ -48,6 +49,8 @@ import {
   HelpCircle,
   Info,
   ChevronRight,
+  Globe,
+  Volume2,
 } from "lucide-react";
 
 import {
@@ -67,6 +70,20 @@ import { getContracts, deleteContract } from "./api/contractsApi";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import SplashScreen from "./components/SplashScreen";
+import ListenButton from "./components/ListenButton";
+import LanguageOnboardingModal from "./components/LanguageOnboardingModal";
+import TermShieldPulse from "./components/TermShieldPulse";
+import {
+  getLanguagePreferences,
+  saveLanguagePreferences,
+  resetLanguagePreferences,
+  hasCompletedOnboarding,
+  getSimpleCategoryHelper,
+  SUPPORTED_LANGUAGES,
+  INFO_PREFERENCES,
+  EXPLANATION_STYLES,
+} from "./services/languagePreferences";
+import { speechService } from "./services/speechService";
 
 import "./App.css";
 
@@ -153,7 +170,13 @@ function App() {
   const [authState, setAuthState] = useState("checking");
   const [authScreen, setAuthScreen] = useState("login");
 
-  const [currentFileId, setCurrentFileId] = useState(null);
+  const [currentFileId, setCurrentFileId] = useState(() => {
+    try {
+      return localStorage.getItem("termShield_selected_file_id") || null;
+    } catch {
+      return null;
+    }
+  });
   const [currentAnalysis, setCurrentAnalysis] = useState(null);
   const [contracts, setContracts] = useState([]);
   const [contractsLoading, setContractsLoading] = useState(false);
@@ -198,6 +221,18 @@ function App() {
 
   // Active modal state: null | "editProfile" | "help" | "about"
   const [activeModal, setActiveModal] = useState(null);
+
+  // Language & Accessibility preferences state
+  const [languagePreferences, setLanguagePreferences] = useState(() => getLanguagePreferences());
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+
+  useEffect(() => {
+    const handlePrefChange = (e) => {
+      if (e?.detail) setLanguagePreferences(e.detail);
+    };
+    window.addEventListener("termshield_preferences_changed", handlePrefChange);
+    return () => window.removeEventListener("termshield_preferences_changed", handlePrefChange);
+  }, []);
 
   const fetchCurrentUser = async () => {
     setUserLoading(true);
@@ -326,7 +361,27 @@ function App() {
 
     try {
       const data = await getContracts();
-      setContracts(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setContracts(list);
+
+      // Restore active contract analysis if selected in storage or state
+      const targetId =
+        currentFileId ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("termShield_selected_file_id")
+          : null);
+      if (targetId && list.some((c) => c.id === targetId)) {
+        if (!currentFileId) {
+          setCurrentFileId(targetId);
+        }
+        if (!currentAnalysis && !selectedAnalysisLoading) {
+          getContractAnalysis(targetId)
+            .then((analysis) => {
+              setCurrentAnalysis(analysis);
+            })
+            .catch(() => { });
+        }
+      }
     } catch (error) {
       setContractsError(
         error?.response?.data?.detail ||
@@ -345,20 +400,57 @@ function App() {
     refreshContracts();
   }, [authState]);
 
+  // Sync user-specific preferences and check onboarding when currentUser is established
+  useEffect(() => {
+    if (authState !== "authenticated" || !currentUser) return;
+    const userIdentifier = currentUser.id || currentUser.email;
+    if (userIdentifier) {
+      const prefs = getLanguagePreferences(userIdentifier);
+      setLanguagePreferences(prefs);
+      if (!hasCompletedOnboarding(userIdentifier)) {
+        setIsOnboardingOpen(true);
+      }
+    }
+  }, [currentUser, authState]);
+
   const activeItem = navigation.find((item) => item.id === activePage);
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = async () => {
     setAuthState("authenticated");
-    fetchCurrentUser().catch(() => { });
+    try {
+      const user = await fetchCurrentUser();
+      const userIdentifier = user?.id || user?.email;
+      if (userIdentifier) {
+        const prefs = getLanguagePreferences(userIdentifier);
+        setLanguagePreferences(prefs);
+        if (!hasCompletedOnboarding(userIdentifier)) {
+          setIsOnboardingOpen(true);
+        }
+      }
+    } catch { }
   };
 
-  const handleRegisterSuccess = () => {
+  const handleRegisterSuccess = async () => {
     setAuthState("authenticated");
-    fetchCurrentUser().catch(() => { });
+    try {
+      const user = await fetchCurrentUser();
+      const userIdentifier = user?.id || user?.email;
+      if (userIdentifier) {
+        const prefs = getLanguagePreferences(userIdentifier);
+        setLanguagePreferences(prefs);
+        if (!hasCompletedOnboarding(userIdentifier)) {
+          setIsOnboardingOpen(true);
+        }
+      }
+    } catch { }
   };
 
   const handleLogout = () => {
+    speechService.stop();
     localStorage.removeItem("termShieldToken");
+    try {
+      localStorage.removeItem("termShield_selected_file_id");
+    } catch { }
     setCurrentUser(null);
     setCurrentFileId(null);
     setCurrentAnalysis(null);
@@ -375,19 +467,26 @@ function App() {
     setIsNotificationsOpen(false);
     setIsProfileDropdownOpen(false);
     setActiveModal(null);
+    setIsOnboardingOpen(false);
   };
 
   const handleNavigation = (id) => {
+    speechService.stop();
     setActivePage(id);
     setMobileMenu(false);
   };
 
-  const handleContractSelect = async (selectedContractId) => {
+  const handleContractSelect = async (selectedContractId, keepCurrentPage = false) => {
     setCurrentFileId(selectedContractId);
+    try {
+      localStorage.setItem("termShield_selected_file_id", selectedContractId);
+    } catch { }
     setCurrentAnalysis(null);
     setSelectedAnalysisLoading(true);
     setSelectedAnalysisError("");
-    setActivePage("analysis");
+    if (!keepCurrentPage) {
+      setActivePage("analysis");
+    }
 
     try {
       const analysis = await getContractAnalysis(selectedContractId);
@@ -411,6 +510,9 @@ function App() {
       setCurrentAnalysis(null);
       setSelectedAnalysisLoading(false);
       setSelectedAnalysisError("");
+      try {
+        localStorage.removeItem("termShield_selected_file_id");
+      } catch { }
     }
     await refreshContracts();
   };
@@ -1222,7 +1324,7 @@ function App() {
           </div>
         </header>
 
-        <main className="page-content">
+        <main className={`page-content ${activePage === "ask" ? "page-content-ask" : ""}`}>
           {/* DASHBOARD */}
           {activePage === "dashboard" && (
             <Dashboard
@@ -1235,6 +1337,7 @@ function App() {
               onRefresh={refreshContracts}
               onSelectContract={handleContractSelect}
               currentUser={currentUser}
+              languagePreferences={languagePreferences}
             />
           )}
 
@@ -1244,6 +1347,9 @@ function App() {
               onBack={() => handleNavigation("dashboard")}
               onAnalysisComplete={(fileId, analysis) => {
                 setCurrentFileId(fileId);
+                try {
+                  localStorage.setItem("termShield_selected_file_id", fileId);
+                } catch { }
                 setCurrentAnalysis(analysis);
                 setSelectedAnalysisLoading(false);
                 setSelectedAnalysisError("");
@@ -1266,6 +1372,7 @@ function App() {
               <RiskAnalysis
                 fileId={currentFileId}
                 analysis={currentAnalysis}
+                languagePreferences={languagePreferences}
               />
             )
           )}
@@ -1289,6 +1396,7 @@ function App() {
             <ClauseExplorer
               fileId={currentFileId}
               analysis={currentAnalysis}
+              languagePreferences={languagePreferences}
             />
           )}
 
@@ -1298,15 +1406,24 @@ function App() {
               fileId={currentFileId}
               analysis={currentAnalysis}
               onNavigate={handleNavigation}
+              languagePreferences={languagePreferences}
             />
           )}
 
           {/* ASK MY T&C */}
           {activePage === "ask" && (
-            <AskMyTC
-              fileId={currentFileId}
-              analysis={currentAnalysis}
-            />
+            <AskMyTCErrorBoundary>
+              <AskMyTC
+                fileId={currentFileId}
+                currentFileId={currentFileId}
+                analysis={currentAnalysis}
+                currentAnalysis={currentAnalysis}
+                languagePreferences={languagePreferences}
+                contracts={contracts}
+                onSelectContract={handleContractSelect}
+                onNavigate={handleNavigation}
+              />
+            </AskMyTCErrorBoundary>
           )}
 
           {/* SETTINGS */}
@@ -1319,7 +1436,13 @@ function App() {
               userDisplayName={userDisplayName}
               userPhoto={userPhoto}
               userInitials={userInitials}
-              onEditProfile={() => setActiveModal("editProfile")}
+              onEditProfile={() => {
+                speechService.stop();
+                setActiveModal("editProfile");
+              }}
+              languagePreferences={languagePreferences}
+              onRerunOnboarding={() => setIsOnboardingOpen(true)}
+              onNavigate={handleNavigation}
             />
           )}
 
@@ -1340,6 +1463,21 @@ function App() {
         </main>
       </div>
 
+      {/* LANGUAGE ONBOARDING WIZARD MODAL */}
+      <LanguageOnboardingModal
+        isOpen={isOnboardingOpen}
+        userId={currentUser?.id || currentUser?.email}
+        onClose={() => {
+          speechService.stop();
+          setIsOnboardingOpen(false);
+        }}
+        onComplete={(newPrefs) => {
+          speechService.stop();
+          setLanguagePreferences(newPrefs);
+          setIsOnboardingOpen(false);
+        }}
+      />
+
       {/* EDIT PROFILE MODAL */}
       {activeModal === "editProfile" && (
         <EditProfileModal
@@ -1347,8 +1485,12 @@ function App() {
           initialPhoto={userPhoto}
           userInitials={userInitials}
           userEmail={currentUser?.email}
-          onClose={() => setActiveModal(null)}
+          onClose={() => {
+            speechService.stop();
+            setActiveModal(null);
+          }}
           onSave={(newName, newPhoto) => {
+            speechService.stop();
             const updated = {
               customFullName: newName.trim(),
               profilePhoto: newPhoto,
@@ -1369,12 +1511,22 @@ function App() {
 
       {/* HELP & SUPPORT MODAL */}
       {activeModal === "help" && (
-        <HelpSupportModal onClose={() => setActiveModal(null)} />
+        <HelpSupportModal
+          onClose={() => {
+            speechService.stop();
+            setActiveModal(null);
+          }}
+        />
       )}
 
       {/* ABOUT TERM SHIELD MODAL */}
       {activeModal === "about" && (
-        <AboutTermShieldModal onClose={() => setActiveModal(null)} />
+        <AboutTermShieldModal
+          onClose={() => {
+            speechService.stop();
+            setActiveModal(null);
+          }}
+        />
       )}
     </div>
   );
@@ -1384,12 +1536,14 @@ function App() {
    CLAUSE EXPLORER
 ========================= */
 
-function ClauseExplorer({ fileId, analysis }) {
+function ClauseExplorer({ fileId, analysis, languagePreferences }) {
   const [explorerView, setExplorerView] = useState("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
   const [selectedClauseId, setSelectedClauseId] = useState(null);
+
+  const isSimpleMode = languagePreferences?.explanationStyle === "Simple";
 
   const clauses = Array.isArray(analysis)
     ? analysis
@@ -1463,154 +1617,174 @@ function ClauseExplorer({ fileId, analysis }) {
     return matchesSearch && matchesCategory && matchesRisk;
   });
 
-  const selectedClause = normalizedClauses.find(
-    (clause) => clause.id === selectedClauseId
-  );
+  const selectedClause =
+    normalizedClauses.find((clause) => clause.id === selectedClauseId) ||
+    visibleClauses[0] ||
+    normalizedClauses[0];
 
-  const detailReasons = selectedClause
-    ? Array.isArray(selectedClause.risk_reasons)
-      ? selectedClause.risk_reasons
-      : selectedClause.risk_reasons
-        ? [selectedClause.risk_reasons]
-        : []
-    : [];
-  const detailRecommendations = selectedClause
-    ? Array.isArray(selectedClause.recommendations)
-      ? selectedClause.recommendations
-      : selectedClause.recommendations
-        ? [selectedClause.recommendations]
-        : []
-    : [];
+  const detailReasons = Array.isArray(selectedClause?.risk_reasons)
+    ? selectedClause.risk_reasons
+    : selectedClause?.risk_reasons
+      ? [selectedClause.risk_reasons]
+      : [];
+
+  const detailRecommendations = Array.isArray(
+    selectedClause?.recommendations
+  )
+    ? selectedClause.recommendations
+    : selectedClause?.recommendations
+      ? [selectedClause.recommendations]
+      : [];
 
   return (
-    <div className="clause-explorer-page">
-      <section className="clause-explorer-header">
-        <div>
-          <span className="eyebrow">CLAUSE INTELLIGENCE</span>
-          <h2>Explore every clause.</h2>
-          <p>
-            Search the analyzed language, examine inter-clause dependencies, and explore
-            how clauses override or reference each other.
-          </p>
-        </div>
-
-        <div className="clause-explorer-header-right">
-          <div className="clause-view-toggle" role="tablist" aria-label="Clause Explorer View">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={explorerView === "list"}
-              className={`clause-view-toggle-btn ${explorerView === "list" ? "active" : ""}`}
-              onClick={() => setExplorerView("list")}
-            >
-              <ListChecks size={15} />
-              <span>Clause List</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={explorerView === "relationships"}
-              className={`clause-view-toggle-btn ${explorerView === "relationships" ? "active" : ""}`}
-              onClick={() => setExplorerView("relationships")}
-            >
-              <Network size={15} />
-              <span>Clause Relationships</span>
-            </button>
-          </div>
-
-          <div className="clause-explorer-count">
-            <strong>{normalizedClauses.length}</strong>
-            <span>clauses analyzed</span>
-          </div>
-        </div>
+    <div className="clauses-page">
+      <section className="clauses-page-header">
+        <span className="eyebrow">CONTRACT BREAKDOWN</span>
+        <h2>Clause Explorer</h2>
+        <p>
+          Review every identified clause, explore why each section matters,
+          and view the relationship graph connecting key terms.
+        </p>
       </section>
 
-      {explorerView === "list" ? (
-        <>
-          <section className="clause-explorer-toolbar" aria-label="Clause filters">
-            <div className="clause-explorer-search">
-              <Search size={17} />
+      {/* ONE POLISHED TOOLBAR CARD */}
+      <section className="clauses-toolbar-card">
+        <div className="clauses-view-toggle">
+          <button
+            type="button"
+            className={`clauses-toggle-btn ${explorerView === "list" ? "active" : ""}`}
+            onClick={() => setExplorerView("list")}
+          >
+            <ListChecks size={14} />
+            <span>List</span>
+          </button>
+          <button
+            type="button"
+            className={`clauses-toggle-btn ${explorerView === "graph" ? "active" : ""}`}
+            onClick={() => setExplorerView("graph")}
+          >
+            <Network size={14} />
+            <span>Relationships</span>
+          </button>
+        </div>
+
+        {explorerView === "list" && (
+          <div className="clauses-toolbar-filters">
+            <div className="clauses-search-box">
+              <Search size={15} className="clauses-search-icon" />
               <input
                 type="search"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search clauses, topics or explanations..."
+                placeholder="Search clauses..."
                 aria-label="Search clauses"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  className="clauses-search-clear"
+                  onClick={() => setSearchTerm("")}
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
 
-            <div className="clause-filter-group">
-              <label>
-                Category
-                <select
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                >
-                  <option value="all">All categories</option>
-                  {categories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Risk level
-                <select
-                  value={riskFilter}
-                  onChange={(event) => setRiskFilter(event.target.value)}
-                >
-                  <option value="all">All risk levels</option>
-                  <option value="high">High risk</option>
-                  <option value="medium">Medium risk</option>
-                  <option value="low">Low risk</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </label>
+            <div className="clauses-dropdown-wrapper">
+              <select
+                className="clauses-select"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+                aria-label="Filter by category"
+              >
+                <option value="all">Category: All</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="clauses-dropdown-arrow" />
             </div>
-          </section>
 
-          <div className="clause-explorer-layout">
-            <section className="clause-list-panel" aria-label="Clause list">
-              <div className="clause-list-heading">
-                <div>
-                  <span className="card-label">ANALYZED CLAUSES</span>
-                  <h3>{visibleClauses.length} visible</h3>
-                </div>
-                <span>Click a clause to inspect it</span>
+            <div className="clauses-dropdown-wrapper">
+              <select
+                className="clauses-select"
+                value={riskFilter}
+                onChange={(event) => setRiskFilter(event.target.value)}
+                aria-label="Filter by risk level"
+              >
+                <option value="all">Risk Level: All</option>
+                <option value="high">High Risk</option>
+                <option value="medium">Medium Risk</option>
+                <option value="low">Low Risk</option>
+                <option value="unknown">Unknown</option>
+              </select>
+              <ChevronDown size={14} className="clauses-dropdown-arrow" />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {explorerView === "list" ? (
+        <div className="clause-explorer-grid">
+          <section className="clause-list-panel">
+            <div className="clause-panel-heading">
+              <div>
+                <span className="card-label">INDEXED CLAUSES</span>
+                <h3>Detected Clauses</h3>
+                <span className="clause-summary-subtext">
+                  {visibleClauses.length} clause{visibleClauses.length === 1 ? "" : "s"} identified
+                </span>
               </div>
+              <span className="filter-count-badge">
+                {visibleClauses.length} of {normalizedClauses.length}
+              </span>
+            </div>
 
-              {visibleClauses.length ? (
-                <div className="clause-explorer-list">
-                  {visibleClauses.map((clause, index) => (
+            {visibleClauses.length ? (
+              <div className="clause-explorer-list">
+                {visibleClauses.map((clause, index) => {
+                  const helperQuestion = getSimpleCategoryHelper(clause.category || clause.title);
+                  const isSelected = selectedClause?.id === clause.id;
+                  const riskUpper = (clause.risk || "unknown").toUpperCase();
+                  return (
                     <button
-                      className={`clause-explorer-item ${selectedClause?.id === clause.id ? "selected" : ""
-                        }`}
+                      className={`clause-explorer-card-item ${isSelected ? "selected" : ""}`}
                       type="button"
                       key={clause.id}
                       onClick={() => setSelectedClauseId(clause.id)}
                     >
-                      <span className="clause-explorer-number">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
+                      <div className="clause-card-top-row">
+                        <div className="clause-card-id-title">
+                          <span className="clause-card-badge-num">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <div className="clause-card-titles">
+                            <strong className="clause-card-title">{clause.title}</strong>
+                            <span className="clause-card-category">{clause.category}</span>
+                          </div>
+                        </div>
+                        <span className={`clause-card-risk-badge ${clause.risk}`}>
+                          {riskUpper}
+                        </span>
+                      </div>
 
-                      <span className="clause-explorer-item-copy">
-                        <strong>{clause.title}</strong>
-                        <span>{clause.category}</span>
-                        <small>{clause.explanation}</small>
-                      </span>
+                      {helperQuestion && (
+                        <div className="clause-card-helper-question">
+                          <span>{helperQuestion}</span>
+                        </div>
+                      )}
 
-                      <span className={`clause-explorer-risk ${clause.risk}`}>
-                        {clause.score !== undefined && (
-                          <b>{clause.score}</b>
-                        )}
-                        {clause.risk}
-                      </span>
+                      <p className="clause-card-snippet">
+                        {clause.explanation || clause.clauseText}
+                      </p>
                     </button>
-                  ))}
-                </div>
-              ) : (
+                  );
+                })}
+              </div>
+            ) : (
                 <div className="clause-explorer-empty compact">
                   <AlertCircle size={21} />
                   <strong>
@@ -1636,13 +1810,32 @@ function ClauseExplorer({ fileId, analysis }) {
                         CLAUSE DETAIL
                       </span>
                       <h3>{selectedClause.title}</h3>
-                      <span className="clause-detail-category">
-                        {selectedClause.category}
-                      </span>
+                      <div className="clause-detail-category-row">
+                        <span className="clause-detail-category">
+                          {selectedClause.category}
+                        </span>
+                        {isSimpleMode && (() => {
+                          const helper = getSimpleCategoryHelper(selectedClause.category || selectedClause.title);
+                          return helper ? (
+                            <span className="clause-simple-detail-badge">
+                              <Sparkles size={12} />
+                              <span>{helper}</span>
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
-                    <span className={`clause-explorer-risk ${selectedClause.risk}`}>
-                      {selectedClause.risk}
-                    </span>
+                    <div className="clause-detail-header-actions">
+                      <span className={`clause-explorer-risk ${selectedClause.risk}`}>
+                        {selectedClause.risk}
+                      </span>
+                      <ListenButton
+                        text={`${selectedClause.title}. ${selectedClause.explanation || selectedClause.user_impact || selectedClause.clauseText || ""}`}
+                        size="sm"
+                        label="Listen"
+                        preferredLanguage={languagePreferences?.language}
+                      />
+                    </div>
                   </div>
 
                   <div className="clause-detail-score">
@@ -1694,7 +1887,6 @@ function ClauseExplorer({ fileId, analysis }) {
               )}
             </section>
           </div>
-        </>
       ) : (
         <ClauseRelErrorBoundary>
           <ClauseRelationships
@@ -2952,7 +3144,7 @@ function ClauseRelationships({ fileId, clauses = [], onSelectClause }) {
    REPORTS PAGE
 ========================= */
 
-function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate }) {
+function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePreferences }) {
   const [summaryData, setSummaryData] = useState(null);
   const [analysisData, setAnalysisData] = useState(null);
   const [relationshipsData, setRelationshipsData] = useState(null);
@@ -3496,6 +3688,16 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate }) {
             <span className="card-label">PLAIN-LANGUAGE SYNTHESIS</span>
             <h3>Executive Summary</h3>
           </div>
+          {Boolean(plainSummary?.length) && (
+            <div className="report-heading-action">
+              <ListenButton
+                text={Array.isArray(plainSummary) ? plainSummary.join(". ") : plainSummary}
+                size="sm"
+                label="Listen"
+                preferredLanguage={languagePreferences?.language}
+              />
+            </div>
+          )}
         </div>
 
         <div className="executive-summary-body">
@@ -3820,7 +4022,61 @@ function renderAssistantContent(text) {
   return <div className="ask-assistant-body">{elements}</div>;
 }
 
-function AskMyTC({ fileId, analysis }) {
+class AskMyTCErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("AskMyTC error caught by boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="ask-page" style={{ padding: "48px 24px", textAlign: "center" }}>
+          <div style={{ maxWidth: "480px", margin: "0 auto", padding: "32px", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+            <AlertCircle size={36} style={{ color: "#ef4444", margin: "0 auto 16px" }} />
+            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#1e293b", marginBottom: "8px" }}>
+              Ask My T&C encountered an error
+            </h3>
+            <p style={{ color: "#64748b", fontSize: "0.9rem", marginBottom: "20px" }}>
+              {this.state.error?.message || "An unexpected error occurred while loading the assistant."}
+            </p>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+            >
+              <RefreshCw size={14} style={{ marginRight: "6px" }} />
+              <span>Retry</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AskMyTC({
+  fileId,
+  currentFileId,
+  analysis,
+  currentAnalysis,
+  languagePreferences,
+  contracts = [],
+  onSelectContract,
+  onNavigate,
+}) {
+  const activeFileId = fileId || currentFileId;
+  const activeAnalysis = analysis || currentAnalysis;
+
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
   const [isAsking, setIsAsking] = useState(false);
@@ -3828,19 +4084,27 @@ function AskMyTC({ fileId, analysis }) {
   const [historyError, setHistoryError] = useState("");
   const [qaError, setQaError] = useState("");
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
 
-  const hasContract = Boolean(fileId);
+  const hasContract = Boolean(activeFileId);
   const contractName =
-    analysis?.filename ||
-    analysis?.file_name ||
-    analysis?.contract_name ||
+    activeAnalysis?.filename ||
+    activeAnalysis?.file_name ||
+    activeAnalysis?.contract_name ||
+    contracts.find((c) => c.id === activeFileId)?.filename ||
+    contracts.find((c) => c.id === activeFileId)?.name ||
     "Selected contract";
 
   const suggestedQuestions = [
-    "What are my biggest obligations?",
-    "Which clauses carry the most risk?",
-    "What should I review before signing?",
+    { label: "Payment obligations", query: "What are my payment obligations?" },
+    { label: "Can I cancel?", query: "Can I cancel or terminate early?" },
+    { label: "When does it renew?", query: "When does this contract renew?" },
+    { label: "Missed deadline?", query: "What happens if I miss a deadline?" },
   ];
+
+  const handleQuickQuestion = (q) => {
+    handleSend(q);
+  };
 
   const fetchHistory = async (targetFileId) => {
     if (!targetFileId) {
@@ -3892,17 +4156,24 @@ function AskMyTC({ fileId, analysis }) {
   };
 
   useEffect(() => {
-    fetchHistory(fileId);
-  }, [fileId]);
+    fetchHistory(activeFileId);
+  }, [activeFileId]);
 
   useEffect(() => {
     if (messages.length > 0 || isAsking) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTo({
+          top: messagesContainerRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      } else if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messages, isAsking]);
 
-  const handleSend = async () => {
-    const question = draft.trim();
+  const handleSend = async (questionOverride) => {
+    const question = (typeof questionOverride === "string" ? questionOverride : draft).trim();
     if (!question || !hasContract || isAsking || historyLoading) return;
 
     const tempId = Date.now();
@@ -3915,9 +4186,19 @@ function AskMyTC({ fileId, analysis }) {
     setIsAsking(true);
 
     try {
+      let questionToSend = question;
+      const prefLang = languagePreferences?.language || "English";
+      const hasExplicitLang =
+        /[\u0C00-\u0D7F]/.test(question) ||
+        /\b(?:telugu|hindi|tamil|kannada|malayalam|marathi|bengali|urdu|english|spanish|french|german)\b/i.test(question);
+
+      if (!hasExplicitLang && prefLang && prefLang.toLowerCase() !== "english") {
+        questionToSend = `${question} (Explain in ${prefLang})`;
+      }
+
       const response = await askContractQuestion(
-        fileId,
-        question
+        activeFileId,
+        questionToSend
       );
 
       if (!response?.answer) {
@@ -3956,62 +4237,123 @@ function AskMyTC({ fileId, analysis }) {
 
   return (
     <div className="ask-page">
-      <section className="ask-page-header">
-        <div>
-          <span className="eyebrow">CONTRACT ASSISTANT</span>
-          <h2>Ask My T&C</h2>
-          <p>
-            Ask focused questions about the language, obligations, and risk
-            signals in your selected contract.
-          </p>
-        </div>
-
-        <div className={`ask-context-indicator ${hasContract ? "ready" : "empty"}`}>
-          <span className="ask-context-dot" />
-          <div>
-            <span>ACTIVE CONTEXT</span>
-            <strong>{hasContract ? contractName : "No contract selected"}</strong>
-          </div>
-        </div>
-      </section>
-
       <section className="ask-chat-shell">
         <div className="ask-chat-header">
           <div className="ask-assistant-avatar">
-            <Bot size={19} />
+            <Shield size={16} className="chat-header-shield" />
           </div>
-          <div>
-            <strong>Term Shield assistant</strong>
-            <span>
+          <div className="ask-header-info">
+            <div className="ask-header-title-row">
+              <strong>TERM SHIELD AI</strong>
+              <span className="ask-active-lang-badge">
+                <Globe size={11} />
+                <span>{languagePreferences?.language || "English"}</span>
+              </span>
+            </div>
+            <span className="ask-header-subtitle">
               {hasContract
                 ? historyLoading
                   ? "Loading conversation history..."
-                  : "Contract context ready"
+                  : `Grounded in ${contractName}`
                 : "Waiting for a contract"}
             </span>
           </div>
           <span className="ask-chat-status">
-            <span />
-            QA connected
+            <span className="status-indicator-dot" />
+            Verified QA
           </span>
         </div>
 
-        <div className="ask-chat-messages" aria-live="polite">
-          <div className="ask-message assistant-message">
-            <div className="ask-message-avatar">
-              <Bot size={15} />
+        <div className="ask-chat-messages" ref={messagesContainerRef} aria-live="polite">
+          {/* NO CONTRACT SELECTED STATE */}
+          {!hasContract && (
+            <div className="ask-no-contract-state">
+              <div className="ask-empty-pulse-wrap">
+                <FileText size={38} style={{ color: "#64748b" }} />
+              </div>
+              <h3 className="ask-empty-title">
+                Select a contract to start asking questions.
+              </h3>
+              <p className="ask-empty-desc">
+                Choose an analyzed agreement from your library or upload a new one to ask about obligations, liabilities, renewal terms, or potential risks.
+              </p>
+
+              {contracts && contracts.length > 0 ? (
+                <div className="ask-no-contract-actions">
+                  <span className="ask-no-contract-subtitle">
+                    Select from your library:
+                  </span>
+                  <div className="ask-no-contract-chips">
+                    {contracts.slice(0, 6).map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="ask-suggestion-chip"
+                        onClick={() => onSelectContract?.(c.id, true)}
+                      >
+                        <FileText size={13} className="chip-sparkle-icon" />
+                        <span>{c.filename || c.name || `Contract ${c.id}`}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {onNavigate && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => onNavigate("contracts")}
+                      style={{ marginTop: "6px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                    >
+                      <span>View all contracts</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                onNavigate && (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => onNavigate("upload")}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <Upload size={15} />
+                    <span>Upload a contract</span>
+                  </button>
+                )
+              )}
             </div>
-            <div className="ask-message-content">
-              <span className="ask-message-author">Term Shield</span>
-              <div className="ask-message-bubble">
-                {renderAssistantContent(
-                  hasContract
-                    ? `I’m ready to help you understand ${contractName}. Ask about a clause, obligation, deadline, or risk signal.`
-                    : "Upload and analyze a contract first, then I can help you explore its terms in plain language."
-                )}
+          )}
+
+          {/* EMPTY STATE: Shown when contract is selected, but no user messages and not loading */}
+          {hasContract && messages.length === 0 && !historyLoading && (
+            <div className="ask-empty-state">
+              <div className="ask-empty-pulse-wrap">
+                <TermShieldPulse size="md" />
+              </div>
+              <h3 className="ask-empty-title">Ask anything about this contract</h3>
+              <p className="ask-empty-desc">
+                Term Shield is grounded strictly in the verified clauses of &ldquo;{contractName}&rdquo;. Ask in English, Telugu, Hindi, or any preferred language.
+              </p>
+
+              <div className="ask-empty-suggestions-panel">
+                <span className="suggestions-panel-label">TRY ASKING:</span>
+                <div className="ask-suggestion-chips-grid">
+                  {suggestedQuestions.map((item) => (
+                    <button
+                      key={item.label || item}
+                      type="button"
+                      className="ask-suggestion-chip"
+                      disabled={isAsking}
+                      onClick={() => handleQuickQuestion(item.query || item)}
+                    >
+                      <Sparkles size={12} className="chip-sparkle-icon" />
+                      <span>{item.query || item}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {historyLoading && (
             <div className="ask-history-loading">
@@ -4029,7 +4371,7 @@ function AskMyTC({ fileId, analysis }) {
               <button
                 type="button"
                 className="ask-history-retry-btn"
-                onClick={() => fetchHistory(fileId)}
+                onClick={() => fetchHistory(activeFileId)}
               >
                 <RefreshCw size={13} />
                 <span>Retry</span>
@@ -4037,39 +4379,68 @@ function AskMyTC({ fileId, analysis }) {
             </div>
           )}
 
+          {/* MESSAGE FEED */}
           {messages.map((message) => (
             <div
-              className={`ask-message ${message.role === "assistant" ? "assistant-message" : "user-message"}`}
+              className={`ask-message-row ${message.role === "assistant" ? "ai-row" : "user-row"}`}
               key={message.id}
             >
-              {message.role === "assistant" && (
-                <div className="ask-message-avatar">
-                  <Bot size={15} />
+              {message.role === "assistant" ? (
+                <div className="ask-ai-bubble-container">
+                  <div className="ask-ai-header-badge">
+                    <div className="ai-shield-icon-badge">
+                      <Shield size={11} />
+                    </div>
+                    <span className="ai-header-title">TERM SHIELD AI</span>
+                    {languagePreferences?.language && languagePreferences.language !== "English" && (
+                      <span className="ai-lang-pill">
+                        {languagePreferences.language}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="ask-ai-message-card">
+                    <div className="ask-ai-text-content">
+                      {renderAssistantContent(message.text)}
+                    </div>
+                    <div className="ask-ai-footer-toolbar">
+                      <ListenButton
+                        text={message.text}
+                        size="sm"
+                        label="Listen"
+                        preferredLanguage={languagePreferences?.language}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="ask-user-bubble-container">
+                  <div className="ask-user-header-badge">
+                    <span>You</span>
+                  </div>
+                  <div className="ask-user-message-card">
+                    <p>{message.text}</p>
+                  </div>
                 </div>
               )}
-              <div className="ask-message-content">
-                <span className="ask-message-author">
-                  {message.role === "assistant" ? "Term Shield" : "You"}
-                </span>
-                <div className="ask-message-bubble">
-                  {message.role === "assistant"
-                    ? renderAssistantContent(message.text)
-                    : message.text}
-                </div>
-              </div>
             </div>
           ))}
 
+          {/* AI THINKING STATE */}
           {isAsking && (
-            <div className="ask-message assistant-message">
-              <div className="ask-message-avatar">
-                <Bot size={15} />
-              </div>
-              <div className="ask-message-content">
-                <span className="ask-message-author">Term Shield</span>
-                <div className="ask-message-bubble ask-thinking-bubble">
-                  <Loader2 size={15} className="spin" />
-                  Thinking about your contract...
+            <div className="ask-message-row ai-row">
+              <div className="ask-ai-bubble-container">
+                <div className="ask-ai-header-badge">
+                  <div className="ai-shield-icon-badge">
+                    <Shield size={11} />
+                  </div>
+                  <span className="ai-header-title">TERM SHIELD AI</span>
+                </div>
+                <div className="ask-ai-message-card thinking-card">
+                  <TermShieldPulse size="sm" />
+                  <span className="thinking-text">
+                    Analyzing contract clauses and preparing verified response...
+                  </span>
                 </div>
               </div>
             </div>
@@ -4077,58 +4448,68 @@ function AskMyTC({ fileId, analysis }) {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="ask-chat-composer">
-          <div className="ask-suggestions">
-            <span>Try asking</span>
-            <div>
-              {suggestedQuestions.map((question) => (
+        {/* COMPACT SUGGESTED QUESTIONS STRIP */}
+        {hasContract && (
+          <div className="ask-suggested-strip">
+            <span className="suggested-strip-label">SUGGESTED</span>
+            <div className="suggested-strip-chips">
+              {suggestedQuestions.map((item) => (
                 <button
                   type="button"
-                  key={question}
-                  disabled={!hasContract || isAsking || historyLoading}
-                  onClick={() => setDraft(question)}
+                  key={item.label || item}
+                  className="suggested-strip-btn"
+                  disabled={isAsking || historyLoading}
+                  onClick={() => handleSend(item.query || item)}
                 >
-                  {question}
+                  <Sparkles size={11} className="suggested-strip-sparkle" />
+                  <span>{item.label || item}</span>
                 </button>
               ))}
             </div>
           </div>
+        )}
 
-          <div className="ask-input-row">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleInputKeyDown}
-              disabled={!hasContract || isAsking || historyLoading}
-              placeholder={
-                hasContract
-                  ? "Ask about this contract..."
-                  : "Select a contract to start asking questions"
-              }
-              rows={1}
-              aria-label="Ask about the selected contract"
-            />
-            <button
-              className="ask-send-button"
-              type="button"
-              disabled={!hasContract || !draft.trim() || isAsking || historyLoading}
-              onClick={handleSend}
-              aria-label="Send question"
-            >
-              <Send size={17} />
-            </button>
-          </div>
-
-          {qaError && (
-            <div className="ask-qa-error" role="alert">
-              <AlertCircle size={14} />
-              <span>{qaError}</span>
+        {/* CHAT COMPOSER */}
+        <div className="ask-chat-composer">
+          {!hasContract ? (
+            <div className="ask-composer-no-contract">
+              <p>Select a contract to start asking questions.</p>
             </div>
-          )}
+          ) : (
+            <>
+              <div className="ask-input-box-wrapper">
+                <textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleInputKeyDown}
+                  disabled={isAsking || historyLoading}
+                  placeholder={`Ask about obligations, cancellation, liabilities in ${contractName}...`}
+                  rows={2}
+                  aria-label="Ask about the selected contract"
+                />
 
-          <p className="ask-composer-note">
-            Answers are grounded in the selected contract and persisted to your library.
-          </p>
+                <div className="ask-input-controls-row">
+                  <button
+                    className="ask-send-button"
+                    type="button"
+                    disabled={!draft.trim() || isAsking || historyLoading}
+                    onClick={() => handleSend()}
+                    aria-label="Send question"
+                  >
+                    <span>Ask</span>
+                    <Send size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {qaError && (
+                <div className="ask-qa-error" role="alert">
+                  <AlertCircle size={13} />
+                  <span>{qaError}</span>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
     </div>
@@ -5333,7 +5714,10 @@ function Insight({ title, text, icon: Icon }) {
 function RiskAnalysis({
   fileId,
   analysis,
+  languagePreferences,
 }) {
+  const isSimpleMode = languagePreferences?.explanationStyle === "Simple";
+
   const clauses = Array.isArray(analysis)
     ? analysis
     : analysis?.analyses ||
@@ -5453,6 +5837,17 @@ function RiskAnalysis({
           </h3>
 
           <p>{overallRiskDescription}</p>
+
+          {overallRisk.toLowerCase() !== "unrated" && (
+            <div className="risk-summary-listen-row">
+              <ListenButton
+                text={`${overallRisk} risk profile. ${overallRiskDescription}`}
+                size="sm"
+                label="Listen to summary"
+                preferredLanguage={languagePreferences?.language}
+              />
+            </div>
+          )}
         </div>
 
         <div className={`overall-score ${overallRisk.toLowerCase()}`}>
@@ -5602,14 +5997,32 @@ function RiskAnalysis({
                       </span>
 
                       <h4>{title}</h4>
+
+                      {isSimpleMode && (() => {
+                        const helper = getSimpleCategoryHelper(clause?.clause_type || clause?.category || title);
+                        return helper ? (
+                          <div className="clause-simple-analysis-badge">
+                            <Sparkles size={11} />
+                            <span>{helper}</span>
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
 
-                    <span
-                      className={`risk-badge ${normalizedRisk}`}
-                    >
-                      <span className="risk-badge-dot" />
-                      {risk}
-                    </span>
+                    <div className="clause-analysis-top-actions">
+                      <span
+                        className={`risk-badge ${normalizedRisk}`}
+                      >
+                        <span className="risk-badge-dot" />
+                        {risk}
+                      </span>
+                      <ListenButton
+                        text={`${title}. ${meaning}${reasons.length ? ". Why this matters: " + reasons.join(". ") : ""}`}
+                        size="sm"
+                        label="Listen"
+                        preferredLanguage={languagePreferences?.language}
+                      />
+                    </div>
                   </div>
 
                   <p>{meaning}</p>
@@ -6063,6 +6476,8 @@ function SettingsPage({
   userPhoto,
   userInitials,
   onEditProfile,
+  languagePreferences,
+  onRerunOnboarding,
 }) {
   const [preferences, setPreferences] = useState(() => {
     try {
@@ -6079,6 +6494,14 @@ function SettingsPage({
     };
   });
 
+  const [langPreferences, setLangPreferences] = useState(() => languagePreferences || getLanguagePreferences());
+
+  useEffect(() => {
+    if (languagePreferences) {
+      setLangPreferences(languagePreferences);
+    }
+  }, [languagePreferences]);
+
   const [savedStatus, setSavedStatus] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -6094,6 +6517,15 @@ function SettingsPage({
     }
   };
 
+  const handleLangPrefChange = (key, value) => {
+    const userIdentifier = currentUser?.id || currentUser?.email;
+    const updated = { ...langPreferences, [key]: value };
+    setLangPreferences(updated);
+    saveLanguagePreferences(updated, userIdentifier);
+    setSavedStatus(true);
+    setTimeout(() => setSavedStatus(false), 2200);
+  };
+
   const handleResetPreferences = () => {
     const defaults = {
       riskSensitivity: "balanced",
@@ -6104,11 +6536,17 @@ function SettingsPage({
     setPreferences(defaults);
     try {
       localStorage.setItem("termShieldPreferences", JSON.stringify(defaults));
-      setSavedStatus(true);
-      setTimeout(() => setSavedStatus(false), 2200);
     } catch {
       // ignore
     }
+
+    // Reset language & accessibility preferences without touching name, photo, or tokens
+    const userIdentifier = currentUser?.id || currentUser?.email;
+    const resetLang = resetLanguagePreferences(userIdentifier);
+    setLangPreferences(resetLang);
+
+    setSavedStatus(true);
+    setTimeout(() => setSavedStatus(false), 2200);
   };
 
   const handleManualRefresh = async () => {
@@ -6442,6 +6880,110 @@ function SettingsPage({
               <span className="preferences-storage-note">Stored in browser localStorage • Not sent to backend</span>
             </div>
           </section>
+
+          {/* Language & Accessibility Card */}
+          <section className="settings-card settings-language-card">
+            <div className="settings-card-header">
+              <div className="settings-card-icon language">
+                <Globe size={18} />
+              </div>
+              <div>
+                <span className="card-label">ACCESSIBILITY &amp; LOCALIZATION</span>
+                <h3>Language &amp; Accessibility</h3>
+              </div>
+
+              {savedStatus && (
+                <span className="preferences-saved-indicator">
+                  <CheckCircle2 size={13} />
+                  Saved locally
+                </span>
+              )}
+            </div>
+
+            <p className="preferences-description">
+              Customize your preferred language, how you prefer to receive contract insights, and explanation simplicity.
+            </p>
+
+            <div className="preferences-grid">
+              <div className="preference-group">
+                <label htmlFor="pref-language">
+                  <span className="pref-title-with-icon">
+                    Preferred Language
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Language used by Ask My T&amp;C and Text-to-Speech audio explanations.</span>
+                </label>
+                <select
+                  id="pref-language"
+                  value={langPreferences.language}
+                  onChange={(e) => handleLangPrefChange("language", e.target.value)}
+                >
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.label}>
+                      {lang.native}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="preference-group">
+                <label htmlFor="pref-info">
+                  <span className="pref-title-with-icon">
+                    Information Preference
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Choose how you prefer to consume contract analyses and answers.</span>
+                </label>
+                <select
+                  id="pref-info"
+                  value={langPreferences.infoPreference}
+                  onChange={(e) => handleLangPrefChange("infoPreference", e.target.value)}
+                >
+                  {INFO_PREFERENCES.map((pref) => (
+                    <option key={pref.id} value={pref.id}>
+                      {pref.label} — {pref.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="preference-group">
+                <label htmlFor="pref-style">
+                  <span className="pref-title-with-icon">
+                    Explanation Style
+                    <Info size={13} className="setting-info-icon" />
+                  </span>
+                  <span className="pref-hint">Toggle between standard legal terminology and simplified everyday language.</span>
+                </label>
+                <select
+                  id="pref-style"
+                  value={langPreferences.explanationStyle}
+                  onChange={(e) => handleLangPrefChange("explanationStyle", e.target.value)}
+                >
+                  {EXPLANATION_STYLES.map((style) => (
+                    <option key={style.id} value={style.id}>
+                      {style.label} — {style.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="settings-wizard-cta-row">
+              <div className="wizard-cta-copy">
+                <strong>Need a guided setup?</strong>
+                <span>Rerun the first-time onboarding wizard to reconfigure all language &amp; usage preferences.</span>
+              </div>
+              <button
+                type="button"
+                className="secondary-button settings-rerun-btn"
+                onClick={onRerunOnboarding}
+              >
+                <Sparkles size={14} />
+                <span>Change preferences</span>
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </div>
@@ -6616,7 +7158,13 @@ function EditProfileModal({
 function HelpSupportModal({ onClose }) {
   const [openFaqIndex, setOpenFaqIndex] = useState(null);
 
+  const handleClose = () => {
+    speechService.stop();
+    onClose();
+  };
+
   const toggleFaq = (index) => {
+    speechService.stop();
     setOpenFaqIndex((prev) => (prev === index ? null : index));
   };
 
@@ -6648,7 +7196,7 @@ function HelpSupportModal({ onClose }) {
   ];
 
   return (
-    <div className="ts-modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="ts-modal-overlay" onClick={handleClose} role="dialog" aria-modal="true">
       <div className="ts-modal-dialog help-modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="ts-modal-header">
           <div>
@@ -6656,7 +7204,7 @@ function HelpSupportModal({ onClose }) {
             <h3>Help &amp; Support Center</h3>
             <p>Explore Term Shield workflows, supported inputs, risk analysis, and common FAQs.</p>
           </div>
-          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal">
+          <button type="button" className="ts-modal-close-btn" onClick={handleClose} aria-label="Close modal">
             <X size={18} />
           </button>
         </div>
@@ -6834,6 +7382,9 @@ function HelpSupportModal({ onClose }) {
                     {isOpen && (
                       <div className="faq-answer-panel">
                         <p>{faq.a}</p>
+                        <div style={{ marginTop: "0.6rem" }}>
+                          <ListenButton text={faq.a} size="sm" label="Listen to Answer" />
+                        </div>
                       </div>
                     )}
                   </div>
