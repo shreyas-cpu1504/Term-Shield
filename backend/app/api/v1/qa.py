@@ -43,8 +43,7 @@ async def ask_question(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Extracted document not found.",
         )
-
-    # Handle basic conversational messages locally without Gemini or QA history
+    # Handle basic conversational acknowledgments locally without cluttering QA history
     conv_response = QAService.get_conversational_response(request.question)
     if conv_response:
         return QuestionResponse(

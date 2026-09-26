@@ -366,10 +366,9 @@ def test_qa_off_topic_scope_check():
 
     assert response.confidence == 0.0
     assert response.evidence == []
-    assert response.answer == (
-        "I can answer questions related to your selected contract. "
-        "I couldn't find this topic in the contract."
-    )
+    assert "Paris" in response.answer
+    assert "contract" in response.answer.lower()
+    assert "not enough relevant information" not in response.answer.lower()
 
 
 def test_qa_gemini_failure_fallback(monkeypatch):
@@ -744,10 +743,9 @@ def test_qa_off_topic_french_capital_still_rejected():
 
     assert response.confidence == 0.0
     assert response.evidence == []
-    assert response.answer == (
-        "I can answer questions related to your selected contract. "
-        "I couldn't find this topic in the contract."
-    )
+    assert "Paris" in response.answer
+    assert "contract" in response.answer.lower()
+    assert "not enough relevant information" not in response.answer.lower()
 
 
 def test_qa_handles_clause_with_none_title():
@@ -1075,3 +1073,662 @@ def test_qa_main_purpose_does_not_select_skip_to_main_content():
     assert "Skip to main content" not in response.answer
     ans_lower = response.answer.lower()
     assert "official" in ans_lower or "federal awards" in ans_lower or "contracting" in ans_lower or "procurement" in ans_lower
+
+
+# ====================================================================
+# CONVERSATIONAL BEHAVIOR & INTENT ROUTING TESTS
+# ====================================================================
+
+
+def test_qa_conversational_identity():
+    clauses = sample_test_clauses()
+    for q in ["Who are you?", "who r u?"]:
+        response = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert response.confidence == 1.0
+        assert response.evidence == []
+        assert "Term Shield" in response.answer
+        assert "not enough relevant information" not in response.answer.lower()
+
+
+def test_qa_conversational_capabilities_and_help():
+    clauses = sample_test_clauses()
+    for q in ["What can you do?", "How do I use this app?", "Hello", "How do I use Term Shield?"]:
+        response = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert response.confidence == 1.0
+        assert response.evidence == []
+        assert len(response.answer.strip()) > 0
+        assert "not enough relevant information" not in response.answer.lower()
+
+
+def test_qa_conversational_general_legal_concepts():
+    clauses = sample_test_clauses()
+    for q in ["What is a contract?", "What does NDA mean?", "Explain what Term Shield does."]:
+        response = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert response.confidence == 1.0
+        assert response.evidence == []
+        assert len(response.answer.strip()) > 0
+        assert "not enough relevant information" not in response.answer.lower()
+
+
+def test_qa_contract_related_questions_grounded():
+    clauses = sample_test_clauses()
+    
+    # 1. Payment terms
+    pay_res = QAService.answer(
+        file_id="test-file",
+        question="What are the payment terms?",
+        clauses=clauses,
+    )
+    assert pay_res.confidence > 0.7
+    assert len(pay_res.evidence) >= 1
+    assert any(ev.clause_number == "1" for ev in pay_res.evidence)
+    assert "50,000" in pay_res.answer or "payment" in pay_res.answer.lower()
+
+    # 2. Termination
+    term_res = QAService.answer(
+        file_id="test-file",
+        question="Can I terminate this contract?",
+        clauses=clauses,
+    )
+    assert term_res.confidence > 0.5
+    assert len(term_res.evidence) >= 1
+
+    # 3. Obligations
+    ob_res = QAService.answer(
+        file_id="test-file",
+        question="What are my obligations?",
+        clauses=clauses,
+    )
+    assert ob_res.confidence > 0.5
+    assert len(ob_res.evidence) >= 1
+
+    # 4. Notice period
+    notice_res = QAService.answer(
+        file_id="test-file",
+        question="What is the notice period?",
+        clauses=clauses,
+    )
+    assert notice_res.confidence > 0.5
+    assert len(notice_res.evidence) >= 1
+
+
+def test_qa_unrelated_questions_polite_scope():
+    clauses = sample_test_clauses()
+    unrelated_queries = [
+        "What is the capital of France?",
+        "Write a Python program.",
+        "Who won yesterday's cricket match?",
+        "Tell me a joke.",
+    ]
+    for q in unrelated_queries:
+        res = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert res.confidence == 0.0
+        assert res.evidence == []
+        assert "contract" in res.answer.lower()
+        assert "not enough relevant information" not in res.answer.lower()
+
+
+def test_qa_multilingual_general_and_contract():
+    clauses = sample_test_clauses()
+
+    # 1. Telugu general questions
+    telugu_gen_1 = QAService.answer(
+        file_id="test-file",
+        question="నువ్వు ఎవరు?",
+        clauses=clauses,
+    )
+    assert telugu_gen_1.confidence == 1.0
+    assert telugu_gen_1.evidence == []
+    assert "Term Shield" in telugu_gen_1.answer
+    assert "not enough relevant information" not in telugu_gen_1.answer.lower()
+
+    telugu_gen_2 = QAService.answer(
+        file_id="test-file",
+        question="మీరు ఏమి చేయగలరు?",
+        clauses=clauses,
+    )
+    assert telugu_gen_2.confidence == 1.0
+    assert telugu_gen_2.evidence == []
+    assert len(telugu_gen_2.answer.strip()) > 0
+    assert "not enough relevant information" not in telugu_gen_2.answer.lower()
+
+    # 2. Telugu contract question
+    telugu_contract = QAService.answer(
+        file_id="test-file",
+        question="ఈ ఒప్పందంలో payment terms ఏమిటి?",
+        clauses=clauses,
+    )
+    assert telugu_contract.confidence > 0.7
+    assert len(telugu_contract.evidence) >= 1
+    assert any(ev.clause_number == "1" for ev in telugu_contract.evidence)
+    assert "not enough relevant information" not in telugu_contract.answer.lower()
+
+
+# ====================================================================
+# REGRESSION TESTS: GENERAL CONVERSATION, CAPABILITY & PAYMENT HANDLING
+# ====================================================================
+
+
+def test_qa_intent_categories_classification():
+    """Verify distinct intent classification across all 4 categories."""
+    clauses = sample_test_clauses()
+
+    # 1. GENERAL CONVERSATION
+    gen_queries = [
+        "Hi",
+        "Hello",
+        "Who are you?",
+        "Who r u?",
+        "Do you know me?",
+        "do u know me",
+        "How are you?",
+        "Thank you",
+        "Bye",
+    ]
+    for q in gen_queries:
+        assert QAService.classify_intent(q, clauses=clauses) == "general", f"Failed for {q}"
+
+    # 2. APP / ASSISTANT CAPABILITY QUESTIONS
+    cap_queries = [
+        "Is this Gemini?",
+        "is this gemini?",
+        "What can you do?",
+        "What questions should I ask?",
+        "what questions should i ask u?",
+        "How does this work?",
+        "How do you analyze contracts?",
+        "What AI do you use?",
+        "Do you use machine learning?",
+        "Can you explain contracts in Telugu?",
+        "ఇది Geminiనా?",
+        "నేను నిన్ను ఏమేమి అడగవచ్చు?",
+    ]
+    for q in cap_queries:
+        assert QAService.classify_intent(q, clauses=clauses) == "capability", f"Failed for {q}"
+
+    # 3. CONTRACT QUESTIONS
+    contract_queries = [
+        "What are my payment obligations?",
+        "Can I terminate?",
+        "What is the notice period?",
+        "What are the penalties?",
+        "What are my obligations?",
+        "What happens if I breach the contract?",
+        "do u think i need to pay anything",
+    ]
+    for q in contract_queries:
+        assert QAService.classify_intent(q, clauses=clauses) == "contract", f"Failed for {q}"
+
+    # 4. UNRELATED QUESTIONS
+    unrelated_queries = [
+        "What is the capital of France?",
+        "Write a Python program.",
+        "Tell me a joke.",
+    ]
+    for q in unrelated_queries:
+        assert QAService.classify_intent(q, clauses=clauses) == "unrelated", f"Failed for {q}"
+
+
+def test_qa_do_u_know_me_behavior():
+    """Verify 'do u know me' does not claim to know personal info and returns expected response."""
+    clauses = sample_test_clauses()
+    for q in ["do u know me", "Do you know me?", "who am i"]:
+        res = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert res.confidence == 1.0
+        assert res.evidence == []
+        assert "not enough relevant information" not in res.answer.lower()
+        assert "don't have access to your personal information" in res.answer or "do not have access to your personal information" in res.answer
+        assert "mainly here to help you understand your contracts" in res.answer
+
+
+def test_qa_is_this_gemini_behavior():
+    """Verify 'is this gemini?' accurately states Gemini AI model and Term Shield grounding."""
+    clauses = sample_test_clauses()
+    for q in ["is this gemini?", "Is this Gemini?", "what ai do you use?"]:
+        res = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert res.confidence == 1.0
+        assert res.evidence == []
+        assert "not enough relevant information" not in res.answer.lower()
+        assert "Google Gemini" in res.answer
+        assert "Term Shield" in res.answer
+        assert "retrieval and grounding system" in res.answer
+
+
+def test_qa_what_questions_should_i_ask_u():
+    """Verify 'what questions should i ask u?' provides structured examples and advice."""
+    clauses = sample_test_clauses()
+    for q in ["what questions should i ask u?", "What questions should I ask?"]:
+        res = QAService.answer(
+            file_id="test-file",
+            question=q,
+            clauses=clauses,
+        )
+        assert res.confidence == 1.0
+        assert res.evidence == []
+        assert "not enough relevant information" not in res.answer.lower()
+        assert "What are my payment obligations?" in res.answer
+        assert "Can I terminate this contract?" in res.answer
+        assert "What is the notice period?" in res.answer
+        assert "Explain Clause 4 in simple language." in res.answer
+        assert "Ask me naturally — you don't need to use specific keywords." in res.answer
+
+
+def test_qa_what_can_you_do_overview():
+    """Verify 'What can you do?' provides concise capability overview and examples."""
+    clauses = sample_test_clauses()
+    res = QAService.answer(
+        file_id="test-file",
+        question="What can you do?",
+        clauses=clauses,
+    )
+    assert res.confidence == 1.0
+    assert res.evidence == []
+    assert "not enough relevant information" not in res.answer.lower()
+    assert "Term Shield AI" in res.answer
+    assert "payment obligations" in res.answer.lower()
+    assert "clauses" in res.answer.lower()
+
+
+def test_qa_multilingual_general_and_capability():
+    """Verify Telugu general and capability questions work naturally in Telugu without contract retrieval."""
+    clauses = sample_test_clauses()
+
+    # 1. Who are you in Telugu
+    r1 = QAService.answer(
+        file_id="test-file",
+        question="నువ్వు ఎవరు?",
+        clauses=clauses,
+    )
+    assert r1.confidence == 1.0
+    assert r1.evidence == []
+    assert "Term Shield" in r1.answer
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r1.answer))
+
+    # 2. Is this Gemini in Telugu
+    r2 = QAService.answer(
+        file_id="test-file",
+        question="ఇది Geminiనా?",
+        clauses=clauses,
+    )
+    assert r2.confidence == 1.0
+    assert r2.evidence == []
+    assert "Google Gemini" in r2.answer
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r2.answer))
+
+    # 3. What questions can I ask in Telugu
+    r3 = QAService.answer(
+        file_id="test-file",
+        question="నేను నిన్ను ఏమేమి అడగవచ్చు?",
+        clauses=clauses,
+    )
+    assert r3.confidence == 1.0
+    assert r3.evidence == []
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r3.answer))
+    assert "చెల్లింపు" in r3.answer or "రద్దు" in r3.answer
+
+
+def test_qa_payment_obligation_consultant_commission_reprocurement():
+    """
+    Regression test for:
+    'do u think i need to pay anything'
+    when the contract specifies Commission pays Consultant, and Consultant default
+    incurs potential reprocurement costs.
+    Must distinguish regular payment obligations from conditional reprocurement costs.
+    """
+    consultant_clauses = [
+        Clause(
+            clause_id="fee_clause",
+            clause_number="1",
+            title="Compensation and Payment",
+            text="The Commission shall pay the Consultant an aggregate fee of $150,000 payable upon completion of deliverables.",
+            order=1,
+            character_count=110,
+            clause_type="PAYMENT",
+        ),
+        Clause(
+            clause_id="default_clause",
+            clause_number="2",
+            title="Default and Termination",
+            text="In the event of default by the Consultant, the Commission may terminate the agreement and procure replacement services, and the Consultant shall be responsible for certain reasonable reprocurement costs.",
+            order=2,
+            character_count=210,
+            clause_type="TERMINATION",
+        ),
+    ]
+
+    res = QAService.answer(
+        file_id="consultant-contract",
+        question="do u think i need to pay anything",
+        clauses=consultant_clauses,
+    )
+
+    assert res.confidence > 0
+    assert len(res.evidence) >= 1
+    # Check that it distinguishes: Commission pays Consultant, and conditional default reprocurement costs
+    ans_lower = res.answer.lower()
+    assert "regular payment obligation" in ans_lower or "don't see a regular payment" in ans_lower
+    assert "consultant" in ans_lower
+    assert "commission" in ans_lower
+    assert "default" in ans_lower or "reprocurement" in ans_lower
+    # Ensure it uses the expected precise phrasing
+    assert "I don't see a regular payment obligation requiring the Consultant to pay the Commission. However, the contract does mention potential financial consequences if the Consultant defaults, including certain reasonable/reprocurement costs." in res.answer
+
+
+def test_qa_payment_obligation_direct_payment_obligation():
+    """
+    Regression test:
+    'do u think i need to pay anything'
+    on a contract with direct Customer payment obligations.
+    """
+    clauses = sample_test_clauses()
+    res = QAService.answer(
+        file_id="customer-contract",
+        question="do u think i need to pay anything",
+        clauses=clauses,
+    )
+    assert res.confidence > 0
+    assert len(res.evidence) >= 1
+    assert any(ev.clause_number == "1" for ev in res.evidence)
+    ans_lower = res.answer.lower()
+    assert "50,000" in res.answer or "payment" in ans_lower or "fee" in ans_lower
+
+
+def test_qa_regression_general_conversation():
+    """Verify general conversation (who r u, do u know me, how do you work, yup, thanks)."""
+    clauses = sample_test_clauses()
+
+    # 1. 'who r u'
+    r1 = QAService.answer(file_id="test-file", question="who r u", clauses=clauses)
+    assert r1.confidence == 1.0
+    assert r1.evidence == []
+    assert "Term Shield" in r1.answer
+    assert "designed primarily to help" not in r1.answer
+
+    # 2. 'do u know me'
+    r2 = QAService.answer(file_id="test-file", question="do u know me", clauses=clauses)
+    assert r2.confidence == 1.0
+    assert r2.evidence == []
+    assert "personal information" in r2.answer.lower()
+    assert "don't have access" in r2.answer.lower() or "not have access" in r2.answer.lower()
+
+    # 3. 'how do you work'
+    r3 = QAService.answer(file_id="test-file", question="how do you work", clauses=clauses)
+    assert r3.confidence == 1.0
+    assert r3.evidence == []
+    ans3_low = r3.answer.lower()
+    assert "pipeline" in ans3_low or "contract" in ans3_low
+    assert "extract" in ans3_low or "clause" in ans3_low
+    assert "gemini" in ans3_low or "grounded" in ans3_low
+
+    # 4. 'yup'
+    r4 = QAService.answer(file_id="test-file", question="yup", clauses=clauses)
+    assert r4.confidence == 1.0
+    assert r4.evidence == []
+    assert "got it" in r4.answer.lower() or "feel free" in r4.answer.lower()
+    assert "designed primarily to help" not in r4.answer
+
+    # 5. 'thanks'
+    r5 = QAService.answer(file_id="test-file", question="thanks", clauses=clauses)
+    assert r5.confidence == 1.0
+    assert r5.evidence == []
+    assert "welcome" in r5.answer.lower()
+
+
+def test_qa_regression_app_questions():
+    """Verify app and capability questions (is this gemini?, what gemini are u using, what can you do?, etc.)."""
+    clauses = sample_test_clauses()
+
+    # 1. 'is this gemini?'
+    r1 = QAService.answer(file_id="test-file", question="is this gemini?", clauses=clauses)
+    assert r1.confidence == 1.0
+    assert r1.evidence == []
+    assert "Google Gemini" in r1.answer or "Gemini" in r1.answer
+
+    # 2. 'what gemini are u using'
+    r2 = QAService.answer(file_id="test-file", question="what gemini are u using", clauses=clauses)
+    assert r2.confidence == 1.0
+    assert r2.evidence == []
+    assert "gemini" in r2.answer.lower()
+    assert "gemini-flash-lite-latest" in r2.answer or "gemini-" in r2.answer
+
+    # 3. 'what can you do?'
+    r3 = QAService.answer(file_id="test-file", question="what can you do?", clauses=clauses)
+    assert r3.confidence == 1.0
+    assert r3.evidence == []
+    assert "Term Shield" in r3.answer
+    assert "clauses" in r3.answer.lower()
+
+    # 4. 'what questions should I ask?'
+    r4 = QAService.answer(file_id="test-file", question="what questions should I ask?", clauses=clauses)
+    assert r4.confidence == 1.0
+    assert r4.evidence == []
+    assert "payment" in r4.answer.lower() or "terminate" in r4.answer.lower()
+
+    # 5. 'how do you analyze contracts?'
+    r5 = QAService.answer(file_id="test-file", question="how do you analyze contracts?", clauses=clauses)
+    assert r5.confidence == 1.0
+    assert r5.evidence == []
+    assert "pipeline" in r5.answer.lower() or "extract" in r5.answer.lower()
+
+
+def test_qa_regression_language_switching():
+    """Verify language switching and transliterated queries."""
+    clauses = sample_test_clauses()
+
+    # 1. 'telugu lo cheppu' with previous answer
+    r1 = QAService.answer(
+        file_id="test-file",
+        question="telugu lo cheppu",
+        clauses=clauses,
+        previous_question="What is the notice period?",
+        previous_answer="Under Clause 2, you must provide 30 days written notice to terminate.",
+    )
+    assert r1.confidence == 1.0
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r1.answer))
+    assert "designed primarily to help" not in r1.answer
+
+    # 2. 'okasari telugu lo cheppu'
+    r2 = QAService.answer(
+        file_id="test-file",
+        question="okasari telugu lo cheppu",
+        clauses=clauses,
+        previous_question="What is the payment amount?",
+        previous_answer="The fee is 50,000 INR per month.",
+    )
+    assert r2.confidence == 1.0
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r2.answer))
+
+    # 3. 'తెలుగులో చెప్పు'
+    r3 = QAService.answer(
+        file_id="test-file",
+        question="తెలుగులో చెప్పు",
+        clauses=clauses,
+        previous_question="What is the renewal policy?",
+        previous_answer="The contract renews automatically unless written notice is given.",
+    )
+    assert r3.confidence == 1.0
+    assert bool(re.search(r"[\u0C00-\u0C7F]", r3.answer))
+
+    # 4. 'simple ga cheppu'
+    r4 = QAService.answer(
+        file_id="test-file",
+        question="simple ga cheppu",
+        clauses=clauses,
+        previous_question="What are my obligations?",
+        previous_answer="The Customer must pay a service fee of 50,000 INR and maintain strict confidentiality.",
+    )
+    assert r4.confidence == 1.0
+    assert "simple" in r4.answer.lower() or "50,000" in r4.answer
+
+
+def test_qa_regression_contract_intelligence():
+    """Verify deep contract questions (payment, termination, notice, breach, non-payment)."""
+    clauses = sample_test_clauses()
+
+    # 1. 'what are my payment obligations?'
+    r1 = QAService.answer(file_id="test-file", question="what are my payment obligations?", clauses=clauses)
+    assert r1.confidence > 0
+    assert len(r1.evidence) >= 1
+    assert "50,000" in r1.answer or "fee" in r1.answer.lower()
+
+    # 2. 'can I terminate?'
+    r2 = QAService.answer(file_id="test-file", question="can I terminate?", clauses=clauses)
+    assert r2.confidence > 0
+    assert len(r2.evidence) >= 1
+    assert "notice" in r2.answer.lower() or "cancel" in r2.answer.lower()
+
+    # 3. 'what is the notice period?'
+    r3 = QAService.answer(file_id="test-file", question="what is the notice period?", clauses=clauses)
+    assert r3.confidence > 0
+    assert len(r3.evidence) >= 1
+    assert "15 days" in r3.answer.lower() or "notice" in r3.answer.lower()
+
+    # 4. 'what happens if I breach?'
+    r4 = QAService.answer(file_id="test-file", question="what happens if I breach?", clauses=clauses)
+    assert r4.confidence > 0
+    assert len(r4.evidence) >= 1
+    assert "liability" in r4.answer.lower() or "breach" in r4.answer.lower()
+
+    # 5. 'what happens if I don't pay?'
+    r5 = QAService.answer(file_id="test-file", question="what happens if I don't pay?", clauses=clauses)
+    assert r5.confidence > 0
+    assert len(r5.evidence) >= 1
+    assert "interest" in r5.answer.lower() or "default" in r5.answer.lower() or "breach" in r5.answer.lower()
+
+
+def test_qa_regression_conversational_followups():
+    """Verify conversational multi-turn follow-up flow and entity resolution."""
+    multi_clauses = [
+        Clause(
+            clause_id="clause_pay",
+            clause_number="1",
+            title="Compensation",
+            text="The Commission shall pay the Consultant a fixed fee of $120,000. Late payments shall incur 1.5% monthly interest.",
+            order=1,
+            character_count=120,
+            clause_type="PAYMENT",
+        ),
+        Clause(
+            clause_id="clause_term",
+            clause_number="4",
+            title="Termination",
+            text="The Commission may terminate for convenience with 30 days' written notice. The Consultant may terminate with 120 days' advance written notice. In default, reasonable reprocurement costs may apply.",
+            order=2,
+            character_count=210,
+            clause_type="TERMINATION",
+        ),
+    ]
+
+    # Follow-up sequence 1: Termination & Consultant
+    # Turn 1: Termination notice
+    t1 = QAService.answer(
+        file_id="contract-multi",
+        question="What is the termination notice?",
+        clauses=multi_clauses,
+    )
+    assert t1.confidence > 0
+    assert "30 days" in t1.answer or "written notice" in t1.answer.lower()
+
+    # Turn 2: Follow-up "what about the consultant?"
+    t2 = QAService.answer(
+        file_id="contract-multi",
+        question="what about the consultant?",
+        clauses=multi_clauses,
+        previous_question="What is the termination notice?",
+        previous_answer=t1.answer,
+    )
+    assert t2.confidence > 0
+    assert "120 days" in t2.answer
+    assert "consultant" in t2.answer.lower()
+
+    # Follow-up sequence 2: Payment flow & non-payment
+    # Turn 1: Payment question
+    p1 = QAService.answer(
+        file_id="contract-multi",
+        question="What are the payment terms?",
+        clauses=multi_clauses,
+    )
+    assert p1.confidence > 0
+
+    # Turn 2: "is that something I have to pay?"
+    p2 = QAService.answer(
+        file_id="contract-multi",
+        question="is that something I have to pay?",
+        clauses=multi_clauses,
+        previous_question="What are the payment terms?",
+        previous_answer=p1.answer,
+    )
+    assert p2.confidence > 0
+    assert "not" in p2.answer.lower() or "commission pays" in p2.answer.lower()
+
+    # Turn 3: "telugu lo cheppu"
+    p3 = QAService.answer(
+        file_id="contract-multi",
+        question="telugu lo cheppu",
+        clauses=multi_clauses,
+        previous_question="is that something I have to pay?",
+        previous_answer=p2.answer,
+    )
+    assert p3.confidence == 1.0
+    assert bool(re.search(r"[\u0C00-\u0C7F]", p3.answer))
+
+    # Turn 4: "simple ga cheppu"
+    p4 = QAService.answer(
+        file_id="contract-multi",
+        question="simple ga cheppu",
+        clauses=multi_clauses,
+        previous_question="is that something I have to pay?",
+        previous_answer=p2.answer,
+    )
+    assert p4.confidence == 1.0
+    assert "simple" in p4.answer.lower()
+
+    # Turn 5: "what happens if I don't pay?"
+    p5 = QAService.answer(
+        file_id="contract-multi",
+        question="what happens if I don't pay?",
+        clauses=multi_clauses,
+        previous_question="is that something I have to pay?",
+        previous_answer=p2.answer,
+    )
+    assert p5.confidence > 0
+    assert "interest" in p5.answer.lower() or "default" in p5.answer.lower() or "breach" in p5.answer.lower()
+
+
+def test_qa_regression_unrelated_trivia_concise():
+    """Verify unrelated questions give concise answers with a contract assistance offer."""
+    clauses = sample_test_clauses()
+    res = QAService.answer(
+        file_id="test-file",
+        question="what is the capital of France?",
+        clauses=clauses,
+    )
+    assert res.confidence == 0.0
+    assert res.evidence == []
+    assert "Paris" in res.answer
+    assert "contract" in res.answer.lower()
+    assert "I'm designed primarily to help with your contract..." not in res.answer

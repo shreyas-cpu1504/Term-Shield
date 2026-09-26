@@ -159,9 +159,67 @@ async def test_ssrf_blocks_excessive_redirects():
                 await URLIngestionService.download("http://example.com/loop")
 
 
+@pytest.mark.anyio
+async def test_ssrf_rejects_cgnat_subnet():
+    """Verify that Carrier-Grade NAT (100.64.0.0/10) is rejected."""
+    fake_cgnat_dns = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("100.64.1.5", 80))]
+
+    with patch("socket.getaddrinfo", return_value=fake_cgnat_dns):
+        with pytest.raises(ValueError, match="Access to private, loopback, or internal network addresses is prohibited"):
+            await URLIngestionService.download("http://cgnat-service.com/contract.pdf")
+
+
+@pytest.mark.anyio
+async def test_ssrf_fallback_to_ipv4_preserves_ssrf_block():
+    """Verify that when dual-stack DNS fails, IPv4 fallback still enforces SSRF."""
+    def mock_dns(host, port, family=0, **kwargs):
+        if family == socket.AF_UNSPEC:
+            raise socket.gaierror("Dual-stack resolution failure")
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.168.1.50", port))]
+
+    with patch("socket.getaddrinfo", side_effect=mock_dns):
+        with pytest.raises(ValueError, match="Access to private, loopback, or internal network addresses is prohibited"):
+            await URLIngestionService.download("http://fallback-internal.com/contract.pdf")
+
+
+@pytest.mark.anyio
+async def test_ssrf_fallback_to_ipv4_allows_public_ip():
+    """Verify that when dual-stack DNS fails, valid public IPv4 resolves and downloads safely."""
+    def mock_dns(host, port, family=0, **kwargs):
+        if family == socket.AF_UNSPEC:
+            raise socket.gaierror("Dual-stack resolution failure")
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.is_redirect = False
+    mock_response.content = b"%PDF-1.4 dummy pdf"
+    mock_response.url = httpx.URL("https://example.com/contract.pdf")
+    mock_response.headers = {"content-type": "application/pdf"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("socket.getaddrinfo", side_effect=mock_dns):
+        with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+            filename, content = await URLIngestionService.download("https://example.com/contract.pdf")
+
+    assert filename == "contract.pdf"
+    assert content.startswith(b"%PDF")
+
+
+@pytest.mark.anyio
+async def test_unresolvable_host_raises_clear_error():
+    """Verify that a host that cannot be resolved at all raises a clear error."""
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror("Unknown host")):
+        with patch("socket.gethostbyname_ex", side_effect=socket.gaierror("Unknown host")):
+            with pytest.raises(ValueError, match="Failed to resolve host 'non-existent-domain.xyz'"):
+                await URLIngestionService.download("https://non-existent-domain.xyz/contract.pdf")
+
+
 # ==========================================
 # 2. Filename Sanitization & Path Traversal
 # ==========================================
+
 
 @pytest.mark.parametrize(
     "input_name,expected_clean",

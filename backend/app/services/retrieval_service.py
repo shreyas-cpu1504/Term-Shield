@@ -503,13 +503,33 @@ class RetrievalService:
             "what payments" in q
             or "payment obligation" in q
             or "payment obligations" in q
+            or "financial obligation" in q
+            or "financial obligations" in q
+            or "financial liability" in q
+            or "financial liabilities" in q
             or "how much do i pay" in q
             or "how much will i pay" in q
             or "what do i have to pay" in q
+            or "need to pay" in q
+            or "have to pay" in q
+            or "pay anything" in q
+            or "pay any" in q
+            or "pay something" in q
+            or "pay money" in q
+            or "do i pay" in q
+            or "do u pay" in q
+            or "do you pay" in q
+            or "do i owe" in q
+            or "do u owe" in q
+            or "do you owe" in q
+            or "owe anything" in q
             or "service fee" in q
             or "payment terms" in q
             or "penalties" in q
             or "penalty" in q
+            or "reprocurement" in q
+            or "reimbursement" in q
+            or "damages" in q
         ):
             return "payments"
 
@@ -1434,12 +1454,27 @@ class RetrievalService:
                     or ""
                 ).upper()
                 c_category = (getattr(clause, "category", None) or "").lower()
+                c_title = (clause.title or "").lower()
                 if (
-                    c_type in {"PAYMENT", "PENALTY"}
-                    or c_category in {"payment", "penalty"}
-                    or "payment" in (clause.title or "").lower()
-                    or "penalty" in (clause.title or "").lower()
-                    or "fee" in (clause.title or "").lower()
+                    c_type in {"PAYMENT", "PENALTY", "INDEMNITY", "LIABILITY", "TERMINATION", "DEFAULT"}
+                    or c_category in {"payment", "penalty", "indemnity", "liability", "termination", "default"}
+                    or any(
+                        k in c_title
+                        for k in (
+                            "payment",
+                            "penalty",
+                            "fee",
+                            "cost",
+                            "charge",
+                            "damages",
+                            "reimbursement",
+                            "reprocurement",
+                            "indemn",
+                            "default",
+                            "compensation",
+                            "liability",
+                        )
+                    )
                 ):
                     score += 0.50
 
@@ -1457,6 +1492,16 @@ class RetrievalService:
                         "penalt",
                         "late fee",
                         "liquidated damages",
+                        "reprocurement",
+                        "reimbursement",
+                        "damages",
+                        "indemn",
+                        "cost",
+                        "costs",
+                        "expense",
+                        "expenses",
+                        "default",
+                        "liab",
                     )
                 ):
                     score += 0.40

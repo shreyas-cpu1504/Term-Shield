@@ -4069,6 +4069,228 @@ button {
   color: #4f8b65;
 }
 
+/* ========================================================
+   LONG CLAUSE SIMPLIFICATION & STRUCTURED UNDERSTANDING
+   ======================================================== */
+
+/* ========================================================
+   LONG CLAUSE SIMPLIFICATION & STRUCTURED UNDERSTANDING
+   ======================================================== */
+
+.clause-understanding-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* Compact view for short clauses */
+.clause-compact-short-card {
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+}
+
+.clause-compact-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
+}
+
+/* Section Cards for Long Clauses */
+.clause-section-card {
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clause-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clause-section-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+/* Specific Card Theming */
+.clause-section-card.explanation {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.7) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border-color: #bfdbfe;
+}
+
+.clause-section-card.explanation .clause-section-label {
+  color: #1d4ed8;
+}
+
+.clause-section-body-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #1e293b;
+  font-weight: 450;
+}
+
+/* Points & Lists */
+.clause-section-card.points {
+  border-color: #cbd5e1;
+}
+
+.clause-section-card.points .clause-section-label {
+  color: #0f172a;
+}
+
+.clause-section-card.deadlines {
+  background: #fbfcfe;
+  border-color: #c7d2fe;
+}
+
+.clause-section-card.deadlines .clause-section-label {
+  color: #4338ca;
+}
+
+.clause-section-card.financial {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.clause-section-card.financial .clause-section-label {
+  color: #15803d;
+}
+
+.clause-section-card.watch {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.clause-section-card.watch .clause-section-label {
+  color: #b45309;
+}
+
+.clause-section-bullet-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clause-section-bullet-list li {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.clause-section-bullet-list.watch-list li {
+  color: #92400e;
+  font-weight: 500;
+}
+
+.clause-section-empty-note {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* Original Contract Evidence */
+.clause-original-evidence-wrapper {
+  margin-top: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.clause-original-evidence-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.clause-view-original-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.clause-view-original-btn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.clause-original-meta-info {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.clause-original-expanded-box {
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.clause-original-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 10px;
+}
+
+.clause-original-box-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #475569;
+}
+
+.clause-original-text-content {
+  padding: 14px 16px;
+  background: #ffffff;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.clause-original-text-content p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .clause-explorer-empty {
   display: flex;
   flex-direction: column;

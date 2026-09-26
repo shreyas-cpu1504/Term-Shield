@@ -425,6 +425,74 @@
   color: #1d4ed8;
 }
 
+.ts-alert-banner.success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.ts-alert-banner .ts-alert-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.ts-alert-banner .ts-alert-content strong {
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.ts-alert-banner .ts-alert-content p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: inherit;
+}
+
+.ts-forgot-header {
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+.ts-forgot-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+}
+
+.ts-forgot-subtext {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+
+.ts-secondary-btn {
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ts-secondary-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
 .ts-alert-banner svg {
   flex-shrink: 0;
   margin-top: 2px;

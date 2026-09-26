@@ -1,14 +1,19 @@
 /**
- * SpeechService - Centralized Web Speech API Coordinator for Term Shield.
+ * SpeechService - Centralized Multilingual Speech Coordinator for Term Shield.
  * Guarantees single-utterance playback across the application, manages
+ * natural Indic/multilingual audio synthesis (Telugu, Hindi, Tamil, Kannada,
+ * Malayalam, Bengali, Marathi, Gujarati, Urdu) as well as native Web Speech API,
  * voice matching, fallback, pause/resume/stop, speed control, and state notification.
  */
 
 import { detectScriptLanguage, SUPPORTED_LANGUAGES } from "./languagePreferences";
+import apiClient from "../api/client";
 
 class SpeechService {
   constructor() {
     this.currentUtterance = null;
+    this.currentAudio = null;
+    this.currentAbortController = null;
     this.activeId = null;
     this.isPlaying = false;
     this.isPaused = false;
@@ -17,9 +22,9 @@ class SpeechService {
     this.isFallbackVoice = false;
     this.listeners = new Set();
     this.voices = [];
-    this.isSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+    this.isSupported = typeof window !== "undefined";
 
-    if (this.isSupported) {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
       this._loadVoices();
       if (window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = () => this._loadVoices();
@@ -28,7 +33,7 @@ class SpeechService {
   }
 
   _loadVoices() {
-    if (!this.isSupported) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     this.voices = window.speechSynthesis.getVoices() || [];
   }
 
@@ -37,7 +42,6 @@ class SpeechService {
    */
   subscribe(listener) {
     this.listeners.add(listener);
-    // Immediately emit current state to the new listener
     listener(this.getState());
     return () => this.listeners.delete(listener);
   }
@@ -66,7 +70,7 @@ class SpeechService {
   }
 
   /**
-   * Select best voice for target BCP-47 language tag.
+   * Find native browser voice if available.
    */
   _findBestVoice(targetLang) {
     if (!this.voices.length) {
@@ -92,7 +96,19 @@ class SpeechService {
       );
     }
 
-    // 3. Fallback to default or first available voice
+    // 3. Name match for Indic languages (e.g. "Mohan - Telugu", "Google Telugu")
+    if (!matched) {
+      const matchLangObj = SUPPORTED_LANGUAGES.find(
+        (l) => l.code.toLowerCase() === langPrefix || l.bcp47.toLowerCase() === langLower
+      );
+      if (matchLangObj) {
+        const langName = matchLangObj.label.toLowerCase();
+        matched = this.voices.find(
+          (v) => v.name && v.name.toLowerCase().includes(langName)
+        );
+      }
+    }
+
     if (matched) {
       return { voice: matched, isFallback: false };
     }
@@ -102,15 +118,22 @@ class SpeechService {
   }
 
   /**
+   * Get backend base URL for TTS endpoint.
+   */
+  _getApiBaseUrl() {
+    const fromClient = apiClient?.defaults?.baseURL;
+    if (fromClient) {
+      return fromClient.replace(/\/+$/, "");
+    }
+    return "http://127.0.0.1:8000/api/v1";
+  }
+
+  /**
    * Start speaking text associated with a unique caller ID.
-   * If another utterance is active, it is immediately stopped.
+   * Naturally handles multilingual, mixed-language (Indic + English legal terms),
+   * pure Indic, and English text.
    */
   speak({ id, text, preferredLang = null, rate = null }) {
-    if (!this.isSupported) {
-      console.warn("Web Speech API is not supported in this environment.");
-      return;
-    }
-
     if (!text || !text.trim()) return;
 
     // Stop any currently playing audio
@@ -120,32 +143,102 @@ class SpeechService {
       this.rate = rate;
     }
 
-    // Clean markdown/HTML formatting for clean speech
+    // Clean markdown/HTML formatting for clean, natural speech
     const cleanText = text
-      .replace(/[*_#`~[\]()<>]/g, " ")
+      .replace(/[*_#`~[\]()<>{}|\\]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
     if (!cleanText) return;
 
-    // Detect actual script to avoid speaking English in a Telugu voice or vice-versa
-    const detectedTag = detectScriptLanguage(cleanText);
+    // Detect actual script language taking into account preferred language and character counts
+    const targetLangTag = detectScriptLanguage(cleanText, preferredLang);
+    const hasIndicChars = /[\u0600-\u0D7F]/.test(cleanText);
+    const isIndicOrMultilingual = hasIndicChars || !targetLangTag.startsWith("en");
 
-    // If preferred language matches the detected script's general group, use it
-    let targetLangTag = detectedTag;
-    if (preferredLang) {
-      const match = SUPPORTED_LANGUAGES.find(
-        (l) => l.label.toLowerCase() === preferredLang.toLowerCase() ||
-               l.code.toLowerCase() === preferredLang.toLowerCase()
-      );
-      if (match) {
-        // If the text is English (Latin script), always speak English
-        if (detectedTag.startsWith("en")) {
-          targetLangTag = match.code === "en" ? (match.bcp47 || "en-IN") : "en-IN";
-        } else {
-          targetLangTag = match.bcp47;
+    this.activeId = id;
+    this.activeLanguage = targetLangTag;
+
+    // For Indic or mixed-language text, use high-fidelity natural speech service
+    // so that Indic words and embedded English legal terms are spoken completely.
+    if (isIndicOrMultilingual) {
+      this._speakWithAudioEngine({ id, cleanText, targetLangTag, preferredLang });
+    } else {
+      // Pure English text: use browser Web Speech API with fallback
+      this._speakWithWebSpeech({ id, cleanText, targetLangTag, preferredLang });
+    }
+  }
+
+  /**
+   * High-fidelity audio stream engine for natural Indic & Multilingual text.
+   */
+  _speakWithAudioEngine({ id, cleanText, targetLangTag, preferredLang }) {
+    try {
+      const baseUrl = this._getApiBaseUrl();
+      const langParam = targetLangTag.split("-")[0];
+      const ttsUrl = `${baseUrl}/tts?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(langParam)}&preferred_lang=${encodeURIComponent(preferredLang || "")}`;
+
+      const audio = new Audio(ttsUrl);
+      audio.playbackRate = this.rate;
+
+      this.currentAudio = audio;
+      this.isFallbackVoice = false;
+
+      audio.onplay = () => {
+        if (this.activeId === id) {
+          this.isPlaying = true;
+          this.isPaused = false;
+          this._notify();
         }
-      }
+      };
+
+      audio.onpause = () => {
+        if (this.activeId === id && this.isPlaying) {
+          this.isPaused = true;
+          this._notify();
+        }
+      };
+
+      audio.onended = () => {
+        if (this.activeId === id) {
+          this.stop();
+        }
+      };
+
+      audio.onerror = () => {
+        // Fallback to Web Speech API if backend audio endpoint could not be reached
+        console.warn("Backend TTS stream unreachable; falling back to device speech engine.");
+        if (this.activeId === id) {
+          this.currentAudio = null;
+          this._speakWithWebSpeech({ id, cleanText, targetLangTag, preferredLang });
+        }
+      };
+
+      // Set initial playing state and trigger playback
+      this.isPlaying = true;
+      this.isPaused = false;
+      this._notify();
+
+      audio.play().catch((playErr) => {
+        console.warn("Audio element play error:", playErr);
+        if (this.activeId === id) {
+          this._speakWithWebSpeech({ id, cleanText, targetLangTag, preferredLang });
+        }
+      });
+    } catch (err) {
+      console.error("Audio engine execution error:", err);
+      this._speakWithWebSpeech({ id, cleanText, targetLangTag, preferredLang });
+    }
+  }
+
+  /**
+   * Web Speech API engine for pure English or offline fallback.
+   */
+  _speakWithWebSpeech({ id, cleanText, targetLangTag, preferredLang }) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      console.warn("Speech synthesis is not supported on this browser.");
+      this.stop();
+      return;
     }
 
     const { voice, isFallback } = this._findBestVoice(targetLangTag);
@@ -156,7 +249,7 @@ class SpeechService {
       utterance.pitch = 1.0;
       utterance.lang = targetLangTag;
 
-      if (voice) {
+      if (voice && !isFallback) {
         utterance.voice = voice;
       }
 
@@ -168,42 +261,39 @@ class SpeechService {
       this.currentUtterance = utterance;
 
       utterance.onstart = () => {
-        this.isPlaying = true;
-        this.isPaused = false;
-        this._notify();
+        if (this.activeId === id) {
+          this.isPlaying = true;
+          this.isPaused = false;
+          this._notify();
+        }
       };
 
       utterance.onpause = () => {
-        this.isPaused = true;
-        this._notify();
+        if (this.activeId === id) {
+          this.isPaused = true;
+          this._notify();
+        }
       };
 
       utterance.onresume = () => {
-        this.isPaused = false;
-        this._notify();
+        if (this.activeId === id) {
+          this.isPaused = false;
+          this._notify();
+        }
       };
 
       utterance.onend = () => {
         if (this.activeId === id) {
-          this.activeId = null;
-          this.isPlaying = false;
-          this.isPaused = false;
-          this.currentUtterance = null;
-          this._notify();
+          this.stop();
         }
       };
 
       utterance.onerror = (e) => {
-        // Interrupted/canceled errors are expected on manual stop
         if (e.error !== "canceled" && e.error !== "interrupted") {
           console.warn("Speech synthesis notice:", e.error);
         }
         if (this.activeId === id) {
-          this.activeId = null;
-          this.isPlaying = false;
-          this.isPaused = false;
-          this.currentUtterance = null;
-          this._notify();
+          this.stop();
         }
       };
 
@@ -216,45 +306,83 @@ class SpeechService {
   }
 
   pause() {
-    if (!this.isSupported || !this.isPlaying) return;
-    try {
-      window.speechSynthesis.pause();
-      this.isPaused = true;
-      this._notify();
-    } catch (err) {
-      console.error("Speech pause error:", err);
+    if (!this.isPlaying) return;
+
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+      } catch (err) {
+        console.error("Audio pause error:", err);
+      }
+    } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.pause();
+      } catch (err) {
+        console.error("Speech pause error:", err);
+      }
     }
+
+    this.isPaused = true;
+    this._notify();
   }
 
   resume() {
-    if (!this.isSupported) return;
-    try {
-      window.speechSynthesis.resume();
-      this.isPaused = false;
-      this._notify();
-    } catch (err) {
-      console.error("Speech resume error:", err);
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.play();
+        this.isPaused = false;
+        this._notify();
+      } catch (err) {
+        console.error("Audio resume error:", err);
+      }
+    } else if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.resume();
+        this.isPaused = false;
+        this._notify();
+      } catch (err) {
+        console.error("Speech resume error:", err);
+      }
     }
   }
 
   stop() {
-    if (!this.isSupported) return;
-    try {
-      window.speechSynthesis.cancel();
-    } catch (err) {
-      console.error("Speech cancel error:", err);
-    } finally {
-      this.activeId = null;
-      this.isPlaying = false;
-      this.isPaused = false;
-      this.currentUtterance = null;
-      this._notify();
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.removeAttribute("src");
+        this.currentAudio.load();
+      } catch (err) {
+        console.error("Audio stop error:", err);
+      } finally {
+        this.currentAudio = null;
+      }
     }
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (err) {
+        console.error("Speech cancel error:", err);
+      } finally {
+        this.currentUtterance = null;
+      }
+    }
+
+    this.activeId = null;
+    this.isPlaying = false;
+    this.isPaused = false;
+    this._notify();
   }
 
   setRate(newRate) {
     if (!Number.isFinite(newRate)) return;
     this.rate = Math.max(0.5, Math.min(2.0, newRate));
+
+    if (this.currentAudio) {
+      this.currentAudio.playbackRate = this.rate;
+    }
+
     this._notify();
   }
 }

@@ -12,6 +12,9 @@ import {
   Search,
   Bell,
   ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
   Menu,
   X,
   Link,
@@ -225,6 +228,27 @@ function App() {
   // Language & Accessibility preferences state
   const [languagePreferences, setLanguagePreferences] = useState(() => getLanguagePreferences());
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState("");
+
+  useEffect(() => {
+    const handleAuthExpired = (event) => {
+      localStorage.removeItem("termShieldToken");
+      setCurrentUser(null);
+      setAuthState("unauthenticated");
+      setAuthScreen("login");
+      const detail = event?.detail?.message;
+      const notice =
+        detail === "Invalid or expired authentication token"
+          ? "Your session has expired. Please sign in again to continue."
+          : "Authentication is required. Please sign in to continue.";
+      setSessionExpiredNotice(notice);
+    };
+
+    window.addEventListener("termshield_auth_expired", handleAuthExpired);
+    return () => {
+      window.removeEventListener("termshield_auth_expired", handleAuthExpired);
+    };
+  }, []);
 
   useEffect(() => {
     const handlePrefChange = (e) => {
@@ -417,6 +441,7 @@ function App() {
 
   const handleLoginSuccess = async () => {
     setAuthState("authenticated");
+    setSessionExpiredNotice("");
     try {
       const user = await fetchCurrentUser();
       const userIdentifier = user?.id || user?.email;
@@ -751,6 +776,7 @@ function App() {
       <div style={{ position: "relative", minHeight: "100vh" }}>
         {isLoginScreen ? (
           <Login
+            initialNotice={sessionExpiredNotice}
             onLoginSuccess={handleLoginSuccess}
             onSwitchToRegister={() => setAuthScreen("register")}
           />
@@ -1829,12 +1855,21 @@ function ClauseExplorer({ fileId, analysis, languagePreferences }) {
                       <span className={`clause-explorer-risk ${selectedClause.risk}`}>
                         {selectedClause.risk}
                       </span>
-                      <ListenButton
-                        text={`${selectedClause.title}. ${selectedClause.explanation || selectedClause.user_impact || selectedClause.clauseText || ""}`}
-                        size="sm"
-                        label="Listen"
-                        preferredLanguage={languagePreferences?.language}
-                      />
+                      {(() => {
+                        const rawSelectedText = selectedClause?.clauseText || selectedClause?.text || "";
+                        const isLong = isLongClause(rawSelectedText);
+                        const speechText = isLong
+                          ? `${selectedClause.title}. Simple explanation: ${getShortSimpleExplanation(selectedClause, rawSelectedText)}. Important points: ${getImportantPoints(selectedClause, rawSelectedText).join(". ")}`
+                          : `${selectedClause.title}. ${selectedClause.explanation || selectedClause.clauseText || ""}`;
+                        return (
+                          <ListenButton
+                            text={speechText}
+                            size="sm"
+                            label="Listen"
+                            preferredLanguage={languagePreferences?.language}
+                          />
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1847,29 +1882,12 @@ function ClauseExplorer({ fileId, analysis, languagePreferences }) {
                     </strong>
                   </div>
 
-                  <ClauseDetailSection
-                    icon={FileText}
-                    title="Clause text"
-                    text={selectedClause.clauseText}
-                  />
-
-                  <ClauseDetailSection
-                    icon={AlertCircle}
-                    title="Why it matters"
-                    items={detailReasons.length ? detailReasons : [selectedClause.user_impact || selectedClause.explanation]}
-                  />
-
-                  <ClauseDetailSection
-                    icon={ShieldAlert}
-                    title="Risk explanation"
-                    items={detailReasons.length ? detailReasons : [selectedClause.explanation]}
-                  />
-
-                  <ClauseDetailSection
-                    icon={CheckCircle2}
-                    title="Recommendation"
-                    items={detailRecommendations.length ? detailRecommendations : ["No recommendation was provided for this clause."]}
-                    tone="recommendation"
+                  <ClauseUnderstandingView
+                    clause={selectedClause}
+                    languagePreferences={languagePreferences}
+                    mode="explorer"
+                    detailReasons={detailReasons}
+                    detailRecommendations={detailRecommendations}
                   />
                 </>
               ) : (
@@ -1905,27 +1923,437 @@ function ClauseExplorer({ fileId, analysis, languagePreferences }) {
   );
 }
 
-function ClauseDetailSection({
-  icon: Icon,
-  title,
-  text,
-  items,
-  tone = "",
+/* =========================================================================
+   CLAUSE UNDERSTANDING & STRUCTURED SIMPLIFICATION (SHORT / LONG)
+   ========================================================================= */
+
+function isLongClause(text) {
+  if (!text) return false;
+  return String(text).trim().length > 250;
+}
+
+function getShortSimpleExplanation(clause, rawText) {
+  if (!clause && !rawText) return "This clause outlines specific requirements for this agreement.";
+
+  const candidate = (clause?.plain_language || clause?.meaning || clause?.summary || "").trim();
+  const rawClean = (rawText || clause?.clauseText || clause?.text || "").trim();
+
+  // If candidate is a genuine 1-4 sentence summary and not identical to the full text
+  if (candidate && candidate !== rawClean && candidate.length >= 40 && candidate.length <= 420) {
+    const sentences = candidate.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences.length >= 1 && sentences.length <= 4) {
+      return candidate;
+    }
+  }
+
+  // Synthesize a high-quality 2-4 sentence non-legal explanation based on category/title
+  const cat = (clause?.clause_type || clause?.category || clause?.classification || "").toLowerCase();
+  const title = (clause?.title || clause?.clause_title || "").toLowerCase();
+  const combined = `${cat} ${title}`;
+
+  if (combined.includes("terminat") || combined.includes("duration") || combined.includes("cancell")) {
+    return "Either party can end the agreement under specified terms and written notice periods. It establishes grounds for immediate cancellation if a breach occurs and outlines requirements for handling ongoing obligations upon termination.";
+  }
+  if (combined.includes("confident") || combined.includes("non-disclos") || combined.includes("secrecy") || combined.includes("nda")) {
+    return "Both parties are strictly required to keep all sensitive and proprietary information confidential. It forbids unauthorized sharing with outside parties and mandates returning or destroying sensitive files once the contract concludes.";
+  }
+  if (combined.includes("indemn") || combined.includes("hold harmless")) {
+    return "One party must financially compensate and protect the other against legal damages, fines, and claims resulting from breaches or negligence. It clarifies legal defense obligations and responsibility for related expenses.";
+  }
+  if (combined.includes("intellectual property") || combined.includes("ip") || combined.includes("ownership") || combined.includes("patent") || combined.includes("copyright")) {
+    return "This section establishes who owns deliverables, inventions, designs, and materials produced under the contract. It specifies the rights transferred to the client and which proprietary assets remain with the creator.";
+  }
+  if (combined.includes("payment") || combined.includes("fee") || combined.includes("compensation") || combined.includes("invoic") || combined.includes("billing")) {
+    return "This clause specifies invoice submission procedures, payment schedules, and allowable expenses. It sets the timeframe within which payments must be completed and defines consequences for delayed or disputed invoices.";
+  }
+  if (combined.includes("liabilit") || combined.includes("limitation") || combined.includes("damage")) {
+    return "This clause establishes a cap on the maximum financial compensation either party can recover if a legal dispute arises. It limits liability for indirect, incidental, or consequential losses.";
+  }
+  if (combined.includes("data protection") || combined.includes("privacy") || combined.includes("processor") || combined.includes("gdpr") || combined.includes("security")) {
+    return "This clause defines strict security standards and protocols for handling personal data under privacy regulations. It requires documented processing instructions, organizational safeguards, and immediate notification if a data breach occurs.";
+  }
+  if (combined.includes("warrant") || combined.includes("guarantee") || combined.includes("representation")) {
+    return "This clause provides formal assurances regarding performance standards, regulatory compliance, and deliverable quality. It sets out procedures for correcting deficiencies if commitments are not fulfilled.";
+  }
+  if (combined.includes("audit") || combined.includes("inspect") || combined.includes("record")) {
+    return "This clause grants the right to inspect records, operational systems, and workflows to verify contractual compliance. It establishes how often reviews can occur and the required advance notice.";
+  }
+  if (combined.includes("dispute") || combined.includes("governing law") || combined.includes("jurisdiction") || combined.includes("arbitrat")) {
+    return "This clause designates which jurisdiction's laws govern the agreement and where formal legal disputes must be filed. It typically expects the parties to attempt amicable negotiation before initiating litigation.";
+  }
+  if (combined.includes("sub-contract") || combined.includes("subprocessor") || combined.includes("assignment")) {
+    return "This clause restricts assigning responsibilities or delegating work to third parties without prior written consent. It ensures any approved third-party meets the same contractual obligations and security standards.";
+  }
+
+  if (candidate && candidate.length > 30) {
+    const s = candidate.replace(/\s+/g, " ").trim();
+    const match = s.match(/[^.!?]+[.!?]+/g);
+    if (match && match.length >= 2) {
+      return match.slice(0, 3).join(" ").trim();
+    }
+    return s.slice(0, 260) + (s.length > 260 ? "..." : "");
+  }
+
+  return "This clause establishes binding requirements, operational procedures, and performance criteria for this engagement. It defines what each party must fulfill and the contractual consequences of non-compliance.";
+}
+
+function getImportantPoints(clause, rawText) {
+  const points = [];
+  const text = rawText || clause?.clauseText || clause?.text || "";
+
+  // 1. Structured analysis if available
+  const structured = [
+    ...(Array.isArray(clause?.obligations) ? clause.obligations : []),
+    ...(Array.isArray(clause?.conditions) ? clause.conditions : []),
+    ...(Array.isArray(clause?.triggers) ? clause.triggers : []),
+    ...(Array.isArray(clause?.consequences) ? clause.consequences : []),
+    ...(Array.isArray(clause?.rights) ? clause.rights : []),
+  ];
+
+  for (const item of structured) {
+    if (!item) continue;
+    let clean = String(item).trim().replace(/^[-•*]\s*/, "");
+    if (clean.length >= 15 && clean.length <= 180 && !points.includes(clean)) {
+      clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+      if (!clean.endsWith(".")) clean += ".";
+      points.push(clean);
+      if (points.length >= 6) break;
+    }
+  }
+
+  // 2. Operative sentence extraction from contract text
+  if (points.length < 3 && text) {
+    const sentences = text
+      .replace(/\r\n/g, "\n")
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map(s => s.trim().replace(/^[\d.]+\s*/, "").replace(/^[-•*]\s*/, ""))
+      .filter(s => s.length >= 25 && s.length <= 220);
+
+    const operativeKeywords = [
+      /\b(?:may terminate|entitled to terminate|right to terminate)\b/i,
+      /\b(?:written notice|advance notice|prior notice)\b/i,
+      /\b(?:within \d+|after \d+)\b/i,
+      /\b(?:must be corrected|cure|remedy)\b/i,
+      /\b(?:shall not|shall strictly|shall immediately|agrees to|required to)\b/i,
+      /\b(?:payment may be|invoice|reimbursement|indemnify|solely responsible)\b/i,
+      /\b(?:confidential|not disclose|audit|prior written (?:authorisation|consent|notice))\b/i,
+    ];
+
+    for (const sentence of sentences) {
+      if (/^(?:for the purposes of|in this agreement|definitions?:|"|')/i.test(sentence)) continue;
+
+      const isOperative = operativeKeywords.some(rx => rx.test(sentence));
+      if (isOperative) {
+        let cleaned = sentence
+          .replace(/^(?:notwithstanding\s+[^,]+,\s*|provided\s+(?:however|that),?\s*|in\s+the\s+event\s+(?:that|of),?\s*|subject\s+to\s+[^,]+,\s*)/i, "")
+          .trim();
+        cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+        if (!cleaned.endsWith(".")) cleaned += ".";
+
+        if (cleaned.length >= 20 && cleaned.length <= 200 && !points.some(p => p.toLowerCase().includes(cleaned.slice(0, 30).toLowerCase()))) {
+          points.push(cleaned);
+          if (points.length >= 6) break;
+        }
+      }
+    }
+  }
+
+  // 3. Grounded fallback
+  if (points.length === 0) {
+    const title = clause?.title || "Contract clause";
+    points.push(`Defines binding operational requirements for ${title.toLowerCase()}.`);
+    points.push("Requires full adherence to documented instructions and applicable regulatory standards.");
+    points.push("Failure to comply may trigger breach remedies or contract termination.");
+  }
+
+  return points.slice(0, 6);
+}
+
+function getImportantNoticesAndDeadlines(clause, rawText) {
+  const deadlines = [];
+  const text = rawText || clause?.clauseText || clause?.text || "";
+
+  const rawDeadlines = [
+    ...(Array.isArray(clause?.deadlines) ? clause.deadlines : []),
+    ...(Array.isArray(clause?.notices) ? clause.notices : []),
+    ...(Array.isArray(clause?.durations) ? clause.durations : []),
+    ...(Array.isArray(clause?.dates) ? clause.dates : []),
+  ];
+
+  for (const item of rawDeadlines) {
+    if (!item) continue;
+    let clean = String(item).trim().replace(/^[-•*]\s*/, "");
+    if (clean && !deadlines.includes(clean)) {
+      clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+      deadlines.push(clean);
+    }
+  }
+
+  const patterns = [
+    /(\b\d+\s*(?:business\s+days?|calendar\s+days?|days?|weeks?|months?|years?)\s+(?:advance\s+)?written\s+notice\b[^.;,\n]{0,40})/gi,
+    /(\bwritten\s+notice\s+of\s+not\s+less\s+than\s+[^.;,\n]{1,40})/gi,
+    /(\bwithin\s+[^.;,\n]{1,35}\b(?:business\s+days?|calendar\s+days?|days?|hours?|weeks?|months?)\b[^.;,\n]{0,35})/gi,
+    /(\b(?:retention|retained|stored)\s+for\s+(?:a\s+period\s+of\s+)?[^.;,\n]{1,40})/gi,
+    /(\b(?:cure|remedy)\s+period\s+of\s+[^.;,\n]{1,40})/gi,
+    /(\b(?:at\s+least\s+an?\s+annual\s+basis|annually|quarterly|monthly)\b[^.;,\n]{0,30})/gi,
+    /(\bvalid\s+for\s+(?:the\s+period\s+of\s+)?[^.;,\n]{1,35})/gi,
+    /(\bnot\s+less\s+than\s+[^.;,\n]{1,35}\b(?:days?|weeks?|months?))/gi,
+  ];
+
+  for (const regex of patterns) {
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      let item = match[0].trim().replace(/\s+/g, " ").replace(/^[,;.\s]+|[,;.\s]+$/g, "");
+      if (item.length >= 6 && item.length <= 90) {
+        item = item.charAt(0).toUpperCase() + item.slice(1);
+        if (!deadlines.some(d => d.toLowerCase().includes(item.toLowerCase()) || item.toLowerCase().includes(d.toLowerCase()))) {
+          deadlines.push(item);
+          if (deadlines.length >= 6) break;
+        }
+      }
+    }
+  }
+
+  return deadlines.slice(0, 6);
+}
+
+function getMoneyAndConsequences(clause, rawText) {
+  const items = [];
+  const text = rawText || clause?.clauseText || clause?.text || "";
+
+  const rawFinancial = [
+    ...(Array.isArray(clause?.monetary_terms) ? clause.monetary_terms : []),
+    ...(Array.isArray(clause?.fees) ? clause.fees : []),
+    ...(Array.isArray(clause?.penalties) ? clause.penalties : []),
+    ...(Array.isArray(clause?.taxes) ? clause.taxes : []),
+  ];
+
+  for (const item of rawFinancial) {
+    if (!item) continue;
+    let clean = String(item).trim().replace(/^[-•*]\s*/, "");
+    if (clean && !items.includes(clean)) {
+      clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+      if (!clean.endsWith(".")) clean += ".";
+      items.push(clean);
+    }
+  }
+
+  const financialKeywords = /\b(payment|fees?|penalt(?:y|ies)|reimburse(?:ment)?|indemnif(?:y|ication)|pecuniary|liquidated damages|costs?|expenses?|interest|fines?|compensation|invoices?|charges?|refunds?|damages?)\b/i;
+
+  if (financialKeywords.test(text)) {
+    const sentences = text
+      .replace(/\r\n/g, "\n")
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map(s => s.trim().replace(/^[\d.]+\s*/, ""))
+      .filter(s => s.length >= 20 && s.length <= 220);
+
+    for (const sentence of sentences) {
+      if (financialKeywords.test(sentence)) {
+        let cleaned = sentence
+          .replace(/^(?:notwithstanding\s+[^,]+,\s*|provided\s+(?:however|that),?\s*)/i, "")
+          .trim();
+        cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+        if (!cleaned.endsWith(".")) cleaned += ".";
+
+        if (!items.some(i => i.toLowerCase().includes(cleaned.slice(0, 30).toLowerCase()))) {
+          items.push(cleaned);
+          if (items.length >= 4) break;
+        }
+      }
+    }
+  }
+
+  return items.slice(0, 4);
+}
+
+function getWhatToWatch(clause, rawText, detailReasons = [], detailRecommendations = []) {
+  const watchPoints = [];
+  const text = rawText || clause?.clauseText || clause?.text || "";
+
+  const reasons = [
+    ...(Array.isArray(detailReasons) ? detailReasons : detailReasons ? [detailReasons] : []),
+    ...(Array.isArray(clause?.risk_reasons) ? clause.risk_reasons : clause?.risk_reasons ? [clause.risk_reasons] : []),
+    ...(clause?.user_impact ? [clause.user_impact] : []),
+  ];
+
+  for (const r of reasons) {
+    if (!r) continue;
+    let clean = String(r).trim().replace(/^[-•*]\s*/, "");
+    if (clean && !watchPoints.some(w => w.toLowerCase() === clean.toLowerCase())) {
+      clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+      if (!clean.endsWith(".")) clean += ".";
+      watchPoints.push(clean);
+      if (watchPoints.length >= 3) break;
+    }
+  }
+
+  if (watchPoints.length < 2 && text) {
+    if (/\b(?:forthwith|without prior notice|immediately terminate)\b/i.test(text)) {
+      watchPoints.push("Immediate termination without prior notice can be triggered under breach conditions.");
+    }
+    if (/\bindemnif|hold harmless|solely responsible\b/i.test(text)) {
+      watchPoints.push("Broad indemnity or uncapped liability makes you responsible for third-party claims, legal fees, or fines.");
+    }
+    if (/\bsole determination|sole discretion|unilateral\b/i.test(text)) {
+      watchPoints.push("The other party holds unilateral discretion in determining breaches or imposing penalties.");
+    }
+    if (/\b(?:survive|continue to be valid and binding)\b/i.test(text)) {
+      watchPoints.push("Key restrictions (such as indemnity or confidentiality) survive termination and continue to bind you.");
+    }
+    if (/\bprior written (?:authorisation|consent|approval)\b/i.test(text)) {
+      watchPoints.push("You must obtain prior written approval before engaging subcontractors or modifying operational processes.");
+    }
+  }
+
+  if (watchPoints.length === 0) {
+    const risk = String(clause?.risk_level || clause?.risk || "medium").toLowerCase();
+    if (risk === "high") {
+      watchPoints.push("Review specific termination triggers and liability exposure before signing.");
+    } else {
+      watchPoints.push("Ensure internal workflows comply with the documented notice and reporting requirements.");
+    }
+  }
+
+  return watchPoints.slice(0, 3);
+}
+
+function ClauseUnderstandingView({
+  clause,
+  languagePreferences,
+  mode = "explorer",
+  detailReasons = [],
+  detailRecommendations = [],
 }) {
-  return (
-    <div className={`clause-detail-section ${tone}`}>
-      <div className="clause-detail-section-heading">
-        <Icon size={14} />
-        <span>{title}</span>
+  const rawText = clause?.clauseText || clause?.text || "";
+  const isLong = isLongClause(rawText);
+  const [isOriginalExpanded, setIsOriginalExpanded] = useState(false);
+
+  const simpleExplanation = getShortSimpleExplanation(clause, rawText);
+  const importantPoints = getImportantPoints(clause, rawText);
+  const noticesAndDeadlines = getImportantNoticesAndDeadlines(clause, rawText);
+  const moneyAndConsequences = getMoneyAndConsequences(clause, rawText);
+  const whatToWatch = getWhatToWatch(clause, rawText, detailReasons, detailRecommendations);
+
+  const charCount = rawText ? rawText.length : 0;
+  const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
+  const clauseNumber = clause?.clause_number || (clause?.clause_id && String(clause.clause_id).replace(/^clause-/, "")) || null;
+
+  // Short clause: keep existing compact presentation
+  if (!isLong) {
+    return (
+      <div className="clause-understanding-container short">
+        <div className="clause-compact-short-card">
+          <p className="clause-compact-text">{rawText || simpleExplanation}</p>
+        </div>
       </div>
-      {text ? <p>{text}</p> : null}
-      {items ? (
-        <ul>
-          {items.map((item, index) => (
-            <li key={index}>{item}</li>
-          ))}
-        </ul>
-      ) : null}
+    );
+  }
+
+  return (
+    <div className="clause-understanding-container long">
+      {/* 1. SIMPLE EXPLANATION */}
+      <section className="clause-section-card explanation">
+        <div className="clause-section-header">
+          <span className="clause-section-label">SIMPLE EXPLANATION</span>
+        </div>
+        <p className="clause-section-body-text">{simpleExplanation}</p>
+      </section>
+
+      {/* 2. IMPORTANT POINTS */}
+      {importantPoints.length > 0 && (
+        <section className="clause-section-card points">
+          <div className="clause-section-header">
+            <span className="clause-section-label">IMPORTANT POINTS</span>
+          </div>
+          <ul className="clause-section-bullet-list">
+            {importantPoints.map((pt, idx) => (
+              <li key={idx}>{pt}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 3. IMPORTANT NOTICES / DEADLINES */}
+      <section className="clause-section-card deadlines">
+        <div className="clause-section-header">
+          <span className="clause-section-label">IMPORTANT NOTICES / DEADLINES</span>
+        </div>
+        {noticesAndDeadlines.length > 0 ? (
+          <ul className="clause-section-bullet-list">
+            {noticesAndDeadlines.map((dl, idx) => (
+              <li key={idx}>{dl}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="clause-section-empty-note">No specific notice periods or deadlines specified in this clause.</p>
+        )}
+      </section>
+
+      {/* 4. MONEY / PENALTY / CONSEQUENCE (Only if relevant!) */}
+      {moneyAndConsequences && moneyAndConsequences.length > 0 && (
+        <section className="clause-section-card financial">
+          <div className="clause-section-header">
+            <span className="clause-section-label">MONEY / PENALTY / CONSEQUENCE</span>
+          </div>
+          <ul className="clause-section-bullet-list">
+            {moneyAndConsequences.map((item, idx) => (
+              <li key={idx}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 5. ⚠️ WHAT TO WATCH */}
+      {whatToWatch.length > 0 && (
+        <section className="clause-section-card watch">
+          <div className="clause-section-header">
+            <span className="clause-section-label">⚠️ WHAT TO WATCH</span>
+          </div>
+          <ul className="clause-section-bullet-list watch-list">
+            {whatToWatch.map((w, idx) => (
+              <li key={idx}>{w}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 6. VIEW ORIGINAL CLAUSE TOGGLE & EVIDENCE */}
+      {rawText && (
+        <div className="clause-original-evidence-wrapper">
+          <div className="clause-original-evidence-actions">
+            <button
+              type="button"
+              className="clause-view-original-btn"
+              onClick={() => setIsOriginalExpanded((prev) => !prev)}
+              aria-expanded={isOriginalExpanded}
+            >
+              <span>{isOriginalExpanded ? "Hide Original Clause" : "View Original Clause"}</span>
+              {isOriginalExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            <span className="clause-original-meta-info">
+              {clauseNumber ? `Clause ${clauseNumber}` : (clause.title || "Contract clause")}
+              {` • ${charCount.toLocaleString()} chars (~${wordCount} words)`}
+            </span>
+          </div>
+
+          {isOriginalExpanded && (
+            <div className="clause-original-expanded-box" aria-live="polite">
+              <div className="clause-original-toolbar">
+                <span className="clause-original-box-title">Full Contract Clause Text (Original)</span>
+                <ListenButton
+                  text={rawText}
+                  size="sm"
+                  label="Listen to original text"
+                  preferredLanguage={languagePreferences?.language}
+                />
+              </div>
+              <div className="clause-original-text-content">
+                <p>{rawText}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -5215,15 +5643,41 @@ function UploadContract({
     setUploadError("");
     setUploadResult(null);
 
+    // Pre-flight check: ensure the token is available
+    const token = localStorage.getItem("termShieldToken");
+    if (!token) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("termshield_auth_expired", {
+            detail: { message: "Authentication required" },
+          })
+        );
+      }
+      setUploadError("Your session has expired. Please sign in again.");
+      setUploading(false);
+      return;
+    }
+
     try {
       // 1. Upload the selected source using the existing API helpers.
       let uploadResponse;
 
+      const fileName = (selectedFile?.name || "").toLowerCase();
+      const fileType = selectedFile?.type || "";
+
+      const isAudio =
+        fileType.startsWith("audio/") ||
+        /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(fileName);
+
+      const isVideo =
+        fileType.startsWith("video/") ||
+        /\.(mp4|mov|avi|mkv|webm)$/i.test(fileName);
+
       if (activeInput === "url") {
         uploadResponse = await ingestContractUrl(url.trim());
-      } else if (selectedFile.type.startsWith("audio/")) {
+      } else if (isAudio) {
         uploadResponse = await uploadContractAudio(selectedFile);
-      } else if (selectedFile.type.startsWith("video/")) {
+      } else if (isVideo) {
         uploadResponse = await uploadContractVideo(selectedFile);
       } else {
         uploadResponse = await uploadContractFile(selectedFile);
@@ -5263,6 +5717,20 @@ function UploadContract({
         "Contract analysis failed:",
         error
       );
+
+      if (error?.response?.status === 401) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("termshield_auth_expired", {
+              detail: {
+                message:
+                  error.response?.data?.detail || "Authentication required",
+              },
+            })
+          );
+        }
+        return;
+      }
 
       const message =
         error?.response?.data?.detail ||
@@ -6016,49 +6484,36 @@ function RiskAnalysis({
                         <span className="risk-badge-dot" />
                         {risk}
                       </span>
-                      <ListenButton
-                        text={`${title}. ${meaning}${reasons.length ? ". Why this matters: " + reasons.join(". ") : ""}`}
-                        size="sm"
-                        label="Listen"
-                        preferredLanguage={languagePreferences?.language}
-                      />
+                      {(() => {
+                        const rawRiskText = clause?.text || clause?.clause_text || clause?.content || "";
+                        const isLong = isLongClause(rawRiskText);
+                        const speechText = isLong
+                          ? `${title}. Simple explanation: ${getShortSimpleExplanation(clause, rawRiskText)}. Important points: ${getImportantPoints(clause, rawRiskText).join(". ")}`
+                          : `${title}. ${meaning}${reasons.length ? ". Why this matters: " + reasons.join(". ") : ""}`;
+                        return (
+                          <ListenButton
+                            text={speechText}
+                            size="sm"
+                            label="Listen"
+                            preferredLanguage={languagePreferences?.language}
+                          />
+                        );
+                      })()}
                     </div>
                   </div>
 
-                  <p>{meaning}</p>
-
-                  {(reasons.length > 0 || clause?.user_impact) && (
-                    <div className="clause-detail-block">
-                      <span className="clause-detail-label">
-                        <AlertCircle size={13} />
-                        Why this matters
-                      </span>
-
-                      <ul>
-                        {reasons.map((reason, reasonIndex) => (
-                          <li key={reasonIndex}>{reason}</li>
-                        ))}
-                        {clause?.user_impact && (
-                          <li>{clause.user_impact}</li>
-                        )}
-                      </ul>
-                    </div>
-                  )}
-
-                  {recommendations.length > 0 && (
-                    <div className="clause-detail-block recommendation-block">
-                      <span className="clause-detail-label">
-                        <CheckCircle2 size={13} />
-                        Recommended next step
-                      </span>
-
-                      <ul>
-                        {recommendations.map((recommendation, recommendationIndex) => (
-                          <li key={recommendationIndex}>{recommendation}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  <ClauseUnderstandingView
+                    clause={{
+                      ...clause,
+                      clauseText: clause?.text || clause?.clause_text || clause?.content || "",
+                      meaning,
+                      title,
+                    }}
+                    languagePreferences={languagePreferences}
+                    mode="risk"
+                    detailReasons={reasons}
+                    detailRecommendations={recommendations}
+                  />
 
                   {score !== undefined && (
                     <div className="risk-score">

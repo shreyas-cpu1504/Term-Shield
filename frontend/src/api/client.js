@@ -10,7 +10,11 @@ apiClient.interceptors.request.use((config) => {
 
   if (token) {
     config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
+    if (typeof config.headers.set === "function") {
+      config.headers.set("Authorization", `Bearer ${token}`);
+    } else {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
 
   return config;
@@ -21,6 +25,19 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem("termShieldToken");
+
+      // Notify the application that the user's session has expired
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("termshield_auth_expired", {
+            detail: {
+              status: 401,
+              message:
+                error.response?.data?.detail || "Authentication required",
+            },
+          })
+        );
+      }
     }
 
     return Promise.reject(error);

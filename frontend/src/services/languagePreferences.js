@@ -16,6 +16,7 @@ export const SUPPORTED_LANGUAGES = [
   { code: "ml", label: "Malayalam", native: "മലയാളം (Malayalam)", bcp47: "ml-IN" },
   { code: "mr", label: "Marathi", native: "मराठी (Marathi)", bcp47: "mr-IN" },
   { code: "bn", label: "Bengali", native: "বাংলা (Bengali)", bcp47: "bn-IN" },
+  { code: "gu", label: "Gujarati", native: "ગુજરાતી (Gujarati)", bcp47: "gu-IN" },
   { code: "ur", label: "Urdu", native: "اردو (Urdu)", bcp47: "ur-IN", fallbackBcp47: "ur-PK" },
 ];
 
@@ -201,27 +202,62 @@ export function resetLanguagePreferences(userOrId) {
 
 /**
  * Detect script language of a given text string for accurate TTS voice matching.
- * This ensures Telugu text is spoken with Telugu voice and English text is spoken
- * with English voice, complying with the "Translate before listening" rule.
+ * This ensures Telugu text is spoken with Telugu voice, Hindi with Hindi voice,
+ * and mixed sentences (Telugu + English legal terms) are spoken naturally in full.
  */
-export function detectScriptLanguage(text) {
+export function detectScriptLanguage(text, preferredLang = null) {
   if (!text || typeof text !== "string") return "en-IN";
 
-  // Telugu: U+0C00–U+0C7F
-  if (/[\u0C00-\u0C7F]/.test(text)) return "te-IN";
-  // Hindi / Marathi: U+0900–U+097F
-  if (/[\u0900-\u097F]/.test(text)) return "hi-IN";
-  // Tamil: U+0B80–U+0BFF
-  if (/[\u0B80-\u0BFF]/.test(text)) return "ta-IN";
-  // Kannada: U+0C80–U+0CFF
-  if (/[\u0C80-\u0CFF]/.test(text)) return "kn-IN";
-  // Malayalam: U+0D00–U+0D7F
-  if (/[\u0D00-\u0D7F]/.test(text)) return "ml-IN";
-  // Bengali: U+0980–U+09FF
-  if (/[\u0980-\u09FF]/.test(text)) return "bn-IN";
-  // Urdu / Arabic: U+0600–U+06FF
-  if (/[\u0600-\u06FF]/.test(text)) return "ur-IN";
+  const scripts = [
+    { code: "te-IN", lang: "te", regex: /[\u0C00-\u0C7F]/g }, // Telugu
+    { code: "ta-IN", lang: "ta", regex: /[\u0B80-\u0BFF]/g }, // Tamil
+    { code: "kn-IN", lang: "kn", regex: /[\u0C80-\u0CFF]/g }, // Kannada
+    { code: "ml-IN", lang: "ml", regex: /[\u0D00-\u0D7F]/g }, // Malayalam
+    { code: "bn-IN", lang: "bn", regex: /[\u0980-\u09FF]/g }, // Bengali
+    { code: "gu-IN", lang: "gu", regex: /[\u0A80-\u0AFF]/g }, // Gujarati
+    { code: "ur-IN", lang: "ur", regex: /[\u0600-\u06FF]/g }, // Urdu / Arabic
+    { code: "hi-IN", lang: "hi", regex: /[\u0900-\u097F]/g }, // Devanagari (Hindi / Marathi)
+  ];
 
+  const counts = {};
+  for (const s of scripts) {
+    const matches = text.match(s.regex);
+    if (matches && matches.length > 0) {
+      counts[s.code] = matches.length;
+    }
+  }
+
+  const detectedCodes = Object.keys(counts);
+  if (detectedCodes.length > 0) {
+    // If preferred language matches one of the detected scripts, prioritize it
+    if (preferredLang) {
+      const normPref = String(preferredLang).toLowerCase();
+      if (normPref.includes("marathi") && counts["hi-IN"]) {
+        return "mr-IN";
+      }
+      for (const code of detectedCodes) {
+        const langPart = code.split("-")[0];
+        if (normPref.includes(langPart)) {
+          return code;
+        }
+      }
+      const match = SUPPORTED_LANGUAGES.find(
+        (l) => l.label.toLowerCase() === normPref || l.code.toLowerCase() === normPref
+      );
+      if (match && counts[match.bcp47]) {
+        return match.bcp47;
+      }
+    }
+
+    if (preferredLang && String(preferredLang).toLowerCase().includes("marathi") && counts["hi-IN"]) {
+      return "mr-IN";
+    }
+
+    // Pick dominant script by count
+    return detectedCodes.sort((a, b) => counts[b] - counts[a])[0];
+  }
+
+  // If no Indic script, return English
   return "en-IN";
 }
 

@@ -9,6 +9,7 @@ from app.api.v1.qa import router as qa_router
 from app.api.v1.media_ingestion import router as media_ingestion_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.contracts import router as contracts_router
+from app.api.v1.tts import router as tts_router
 from app.core.config import get_settings
 from app.core.database import close_db, init_db
 from app.schemas.health import HealthResponse
@@ -98,5 +99,10 @@ app.include_router(
 
 app.include_router(
     contracts_router,
+    prefix=settings.api_prefix,
+)
+
+app.include_router(
+    tts_router,
     prefix=settings.api_prefix,
 )
