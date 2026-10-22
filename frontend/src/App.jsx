@@ -54,6 +54,8 @@ import {
   ChevronRight,
   Globe,
   Volume2,
+  FileQuestion,
+  FileSearch,
 } from "lucide-react";
 
 import {
@@ -67,11 +69,12 @@ import {
   getContractSummary,
   getContractRelationships,
 } from "./api/analysisApi";
-import { askContractQuestion, getQAHistory } from "./api/qaApi";
-import { getCurrentUser, exchangeOAuthCode } from "./api/authApi";
+import { askContractQuestion, getQAHistory, clearQAHistory } from "./api/qaApi";
+import { getCurrentUser, exchangeOAuthCode, updateProfile } from "./api/authApi";
 import { getContracts, deleteContract } from "./api/contractsApi";
 import Login from "./components/Login";
 import Register from "./components/Register";
+import ResetPassword from "./components/ResetPassword";
 import SplashScreen from "./components/SplashScreen";
 import ListenButton from "./components/ListenButton";
 import LanguageOnboardingModal from "./components/LanguageOnboardingModal";
@@ -87,6 +90,27 @@ import {
   EXPLANATION_STYLES,
 } from "./services/languagePreferences";
 import { speechService } from "./services/speechService";
+import {
+  getExecutiveSummaryMetrics,
+  getPriorityIssues,
+  getKeyFinancialTerms,
+  getKeyObligations,
+  getImportantDeadlines,
+  getReportPotentialConcerns,
+  getMeaningfulRelationships,
+} from "./services/executiveReport.js";
+import {
+  computeDashboardMetrics,
+} from "./services/dashboardService.js";
+import {
+  detectClauseCategory,
+  getWhatItSays,
+  getWhyThisIsImportant,
+  getPotentialConcerns,
+  getWhatShouldYouDo,
+  getClauseSourceText,
+  generateConciseClauseSummary,
+} from "./services/clauseIntelligence.js";
 
 import "./App.css";
 
@@ -158,11 +182,24 @@ function formatNotificationTime(dateStr) {
 }
 
 function App() {
-  const [showSplash, setShowSplash] = useState(() => {
-    // If returning from an OAuth callback with an exchange code or error, bypass splash screen
+  const [resetToken, setResetToken] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.has("oauth_code") || params.has("error")) {
+      return params.get("token") || null;
+    }
+    return null;
+  });
+
+  const [showSplash, setShowSplash] = useState(() => {
+    // If returning from an OAuth callback with an exchange code or error, or reset password link, bypass splash screen
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (
+        params.has("oauth_code") ||
+        params.has("error") ||
+        params.has("token") ||
+        window.location.pathname === "/reset-password"
+      ) {
         return false;
       }
     }
@@ -171,7 +208,15 @@ function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [authState, setAuthState] = useState("checking");
-  const [authScreen, setAuthScreen] = useState("login");
+  const [authScreen, setAuthScreen] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("token") || window.location.pathname === "/reset-password") {
+        return "reset-password";
+      }
+    }
+    return "login";
+  });
 
   const [currentFileId, setCurrentFileId] = useState(() => {
     try {
@@ -208,15 +253,33 @@ function App() {
     }
   });
 
-  // Profile customization override state (stored in localStorage)
-  const [profileOverride, setProfileOverride] = useState(() => {
+  // Profile customization state scoped strictly to the authenticated account
+  const [profileOverride, setProfileOverride] = useState({});
+
+  useEffect(() => {
+    // Purge legacy global key to prevent cross-account profile leakage
     try {
-      const saved = localStorage.getItem("termShield_profile_override");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
+      localStorage.removeItem("termShield_profile_override");
+    } catch { }
+
+    if (currentUser?.id) {
+      try {
+        const userKey = `termShield_profile_${currentUser.id}`;
+        const saved = localStorage.getItem(userKey);
+        if (saved) {
+          setProfileOverride(JSON.parse(saved));
+          return;
+        }
+      } catch { }
+      setProfileOverride({
+        customFullName: currentUser.full_name || "",
+        profilePhoto: currentUser.profile_photo || null,
+      });
+    } else {
+      // Clear all in-memory profile state when logged out or unauthenticated
+      setProfileOverride({});
     }
-  });
+  }, [currentUser?.id, currentUser?.full_name, currentUser?.profile_photo]);
 
   // Profile dropdown menu state
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
@@ -233,6 +296,10 @@ function App() {
   useEffect(() => {
     const handleAuthExpired = (event) => {
       localStorage.removeItem("termShieldToken");
+      try {
+        localStorage.removeItem("termShield_profile_override");
+      } catch { }
+      setProfileOverride({});
       setCurrentUser(null);
       setAuthState("unauthenticated");
       setAuthScreen("login");
@@ -283,6 +350,18 @@ function App() {
     if (errorFromUrl) {
       window.history.replaceState({}, document.title, window.location.pathname);
       setAuthScreen("login");
+      setAuthState("unauthenticated");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const resetParam = urlParams.get("token");
+    if (resetParam || window.location.pathname === "/reset-password") {
+      if (resetParam) {
+        setResetToken(resetParam);
+      }
+      setAuthScreen("reset-password");
       setAuthState("unauthenticated");
       return () => {
         cancelled = true;
@@ -379,7 +458,11 @@ function App() {
     };
   }, []);
 
+  const isRefreshingContractsRef = useRef(false);
+
   const refreshContracts = async () => {
+    if (isRefreshingContractsRef.current) return;
+    isRefreshingContractsRef.current = true;
     setContractsLoading(true);
     setContractsError("");
 
@@ -398,14 +481,20 @@ function App() {
         if (!currentFileId) {
           setCurrentFileId(targetId);
         }
-        if (!currentAnalysis && !selectedAnalysisLoading) {
-          getContractAnalysis(targetId)
-            .then((analysis) => {
-              setCurrentAnalysis(analysis);
-            })
-            .catch(() => { });
-        }
+        try {
+          const analysis = await getContractAnalysis(targetId);
+          setCurrentAnalysis(analysis);
+          setSelectedAnalysisError("");
+        } catch { }
+      } else {
+        // Target contract does not belong to this user or user has 0 contracts
+        setCurrentFileId(null);
+        setCurrentAnalysis(null);
+        try {
+          localStorage.removeItem("termShield_selected_file_id");
+        } catch { }
       }
+      return list;
     } catch (error) {
       setContractsError(
         error?.response?.data?.detail ||
@@ -413,8 +502,10 @@ function App() {
         error?.message ||
         "Unable to load your contract library."
       );
+      return [];
     } finally {
       setContractsLoading(false);
+      isRefreshingContractsRef.current = false;
     }
   };
 
@@ -456,6 +547,13 @@ function App() {
   };
 
   const handleRegisterSuccess = async () => {
+    try {
+      localStorage.removeItem("termShield_selected_file_id");
+    } catch { }
+    setCurrentFileId(null);
+    setCurrentAnalysis(null);
+    setContracts([]);
+    setContractsError("");
     setAuthState("authenticated");
     try {
       const user = await fetchCurrentUser();
@@ -475,7 +573,9 @@ function App() {
     localStorage.removeItem("termShieldToken");
     try {
       localStorage.removeItem("termShield_selected_file_id");
+      localStorage.removeItem("termShield_profile_override");
     } catch { }
+    setProfileOverride({});
     setCurrentUser(null);
     setCurrentFileId(null);
     setCurrentAnalysis(null);
@@ -770,6 +870,21 @@ function App() {
   }
 
   if (authState === "unauthenticated") {
+    if (authScreen === "reset-password") {
+      return (
+        <ResetPassword
+          token={resetToken}
+          onBackToLogin={() => {
+            setAuthScreen("login");
+            setResetToken(null);
+            if (typeof window !== "undefined") {
+              window.history.replaceState({}, document.title, "/");
+            }
+          }}
+        />
+      );
+    }
+
     const isLoginScreen = authScreen === "login";
 
     return (
@@ -825,26 +940,24 @@ function App() {
   }
 
   const currentFullName =
-    profileOverride.customFullName !== undefined &&
-    profileOverride.customFullName !== null &&
-    profileOverride.customFullName.trim() !== ""
-      ? profileOverride.customFullName.trim()
-      : currentUser?.full_name?.trim() || "";
+    (currentUser?.full_name && currentUser.full_name.trim()) ||
+    (profileOverride?.customFullName && profileOverride.customFullName.trim()) ||
+    "";
 
   const userDisplayName =
     currentFullName || currentUser?.email || "Account";
 
   const userInitials = currentFullName
     ? currentFullName
-        .split(/\s+/)
-        .map((part) => part[0]?.toUpperCase())
-        .slice(0, 2)
-        .join("") || "TS"
+      .split(/\s+/)
+      .map((part) => part[0]?.toUpperCase())
+      .slice(0, 2)
+      .join("") || "TS"
     : currentUser?.email
       ? currentUser.email.slice(0, 2).toUpperCase()
       : "TS";
 
-  const userPhoto = profileOverride.profilePhoto || null;
+  const userPhoto = currentUser?.profile_photo || profileOverride?.profilePhoto || null;
 
   return (
     <div className="app-shell">
@@ -1431,6 +1544,10 @@ function App() {
             <ReportsPage
               fileId={currentFileId}
               analysis={currentAnalysis}
+              contracts={contracts}
+              contractsLoading={contractsLoading}
+              contractsError={contractsError}
+              onSelectContract={handleContractSelect}
               onNavigate={handleNavigation}
               languagePreferences={languagePreferences}
             />
@@ -1515,20 +1632,44 @@ function App() {
             speechService.stop();
             setActiveModal(null);
           }}
-          onSave={(newName, newPhoto) => {
+          onSave={async (newName, newPhoto) => {
             speechService.stop();
+            const trimmedName = newName.trim();
+            const updatedPhoto = newPhoto || null;
+
+            // 1. Persist changes to the authenticated user's profile on backend
+            const updatedUser = await updateProfile({
+              full_name: trimmedName,
+              profile_photo: updatedPhoto,
+            });
+
+            // 2. Update currentUser in React state
+            if (updatedUser) {
+              setCurrentUser(updatedUser);
+            } else {
+              setCurrentUser((prev) => prev ? {
+                ...prev,
+                full_name: trimmedName,
+                profile_photo: updatedPhoto,
+              } : prev);
+            }
+
+            // 3. Keep account-scoped override synchronized
             const updated = {
-              customFullName: newName.trim(),
-              profilePhoto: newPhoto,
+              customFullName: trimmedName,
+              profilePhoto: updatedPhoto,
             };
             setProfileOverride(updated);
-            try {
-              localStorage.setItem(
-                "termShield_profile_override",
-                JSON.stringify(updated)
-              );
-            } catch {
-              // ignore
+
+            if (currentUser?.id) {
+              try {
+                localStorage.setItem(
+                  `termShield_profile_${currentUser.id}`,
+                  JSON.stringify(updated)
+                );
+              } catch {
+                // ignore
+              }
             }
             setActiveModal(null);
           }}
@@ -1811,100 +1952,101 @@ function ClauseExplorer({ fileId, analysis, languagePreferences }) {
                 })}
               </div>
             ) : (
-                <div className="clause-explorer-empty compact">
-                  <AlertCircle size={21} />
-                  <strong>
-                    {normalizedClauses.length
-                      ? "No clauses match these filters"
-                      : "No clause analysis available"}
-                  </strong>
-                  <span>
-                    {normalizedClauses.length
-                      ? "Try a different search term or reset the filters."
-                      : "Analyze a contract to populate the Clause Explorer."}
-                  </span>
-                </div>
-              )}
-            </section>
+              <div className="clause-explorer-empty compact">
+                <AlertCircle size={21} />
+                <strong>
+                  {normalizedClauses.length
+                    ? "No clauses match these filters"
+                    : "No clause analysis available"}
+                </strong>
+                <span>
+                  {normalizedClauses.length
+                    ? "Try a different search term or reset the filters."
+                    : "Analyze a contract to populate the Clause Explorer."}
+                </span>
+              </div>
+            )}
+          </section>
 
-            <section className="clause-detail-panel" aria-live="polite">
-              {selectedClause ? (
-                <>
-                  <div className="clause-detail-header">
-                    <div>
-                      <span className="clause-number">
-                        CLAUSE DETAIL
+          <section className="clause-detail-panel" aria-live="polite">
+            {selectedClause ? (
+              <>
+                <div className="clause-detail-header">
+                  <div>
+                    <span className="clause-number">
+                      CLAUSE DETAIL
+                    </span>
+                    <h3>{selectedClause.title}</h3>
+                    <div className="clause-detail-category-row">
+                      <span className="clause-detail-category">
+                        {selectedClause.category}
                       </span>
-                      <h3>{selectedClause.title}</h3>
-                      <div className="clause-detail-category-row">
-                        <span className="clause-detail-category">
-                          {selectedClause.category}
-                        </span>
-                        {isSimpleMode && (() => {
-                          const helper = getSimpleCategoryHelper(selectedClause.category || selectedClause.title);
-                          return helper ? (
-                            <span className="clause-simple-detail-badge">
-                              <Sparkles size={12} />
-                              <span>{helper}</span>
-                            </span>
-                          ) : null;
-                        })()}
-                      </div>
-                    </div>
-                    <div className="clause-detail-header-actions">
-                      <span className={`clause-explorer-risk ${selectedClause.risk}`}>
-                        {selectedClause.risk}
-                      </span>
-                      {(() => {
-                        const rawSelectedText = selectedClause?.clauseText || selectedClause?.text || "";
-                        const isLong = isLongClause(rawSelectedText);
-                        const speechText = isLong
-                          ? `${selectedClause.title}. Simple explanation: ${getShortSimpleExplanation(selectedClause, rawSelectedText)}. Important points: ${getImportantPoints(selectedClause, rawSelectedText).join(". ")}`
-                          : `${selectedClause.title}. ${selectedClause.explanation || selectedClause.clauseText || ""}`;
-                        return (
-                          <ListenButton
-                            text={speechText}
-                            size="sm"
-                            label="Listen"
-                            preferredLanguage={languagePreferences?.language}
-                          />
-                        );
+                      {isSimpleMode && (() => {
+                        const helper = getSimpleCategoryHelper(selectedClause.category || selectedClause.title);
+                        return helper ? (
+                          <span className="clause-simple-detail-badge">
+                            <Sparkles size={12} />
+                            <span>{helper}</span>
+                          </span>
+                        ) : null;
                       })()}
                     </div>
                   </div>
-
-                  <div className="clause-detail-score">
-                    <span>Risk score</span>
-                    <strong>
-                      {selectedClause.score !== undefined
-                        ? selectedClause.score
-                        : "Not scored"}
-                    </strong>
+                  <div className="clause-detail-header-actions">
+                    <span className={`clause-explorer-risk ${selectedClause.risk}`}>
+                      {selectedClause.risk}
+                    </span>
+                    {(() => {
+                      const rawSelectedText = selectedClause?.clauseText || selectedClause?.text || "";
+                      const whatItSays = getWhatItSays(selectedClause, rawSelectedText);
+                      const whyImportant = getWhyThisIsImportant(selectedClause, rawSelectedText, detailReasons);
+                      const potentialConcerns = getPotentialConcerns(selectedClause, rawSelectedText);
+                      const whatToDo = getWhatShouldYouDo(selectedClause, rawSelectedText, detailRecommendations);
+                      const speechText = `${selectedClause.title}. What it says: ${whatItSays}. Why is this important: ${whyImportant.join(". ")}. Unclear or potential concerns: ${potentialConcerns.join(". ")}. What should you do: ${whatToDo.join(". ")}`;
+                      return (
+                        <ListenButton
+                          text={speechText}
+                          size="sm"
+                          label="Listen"
+                          preferredLanguage={languagePreferences?.language}
+                        />
+                      );
+                    })()}
                   </div>
-
-                  <ClauseUnderstandingView
-                    clause={selectedClause}
-                    languagePreferences={languagePreferences}
-                    mode="explorer"
-                    detailReasons={detailReasons}
-                    detailRecommendations={detailRecommendations}
-                  />
-                </>
-              ) : (
-                <div className="clause-explorer-empty detail-empty">
-                  <div className="clause-detail-empty-icon">
-                    <ListChecks size={23} />
-                  </div>
-                  <span className="card-label">CLAUSE DETAIL</span>
-                  <h3>Select a clause to begin</h3>
-                  <p>
-                    Choose an item from the list to view its text, risk context,
-                    and recommended next steps.
-                  </p>
                 </div>
-              )}
-            </section>
-          </div>
+
+                <div className="clause-detail-score">
+                  <span>Risk score</span>
+                  <strong>
+                    {selectedClause.score !== undefined
+                      ? selectedClause.score
+                      : "Not scored"}
+                  </strong>
+                </div>
+
+                <ClauseUnderstandingView
+                  clause={selectedClause}
+                  languagePreferences={languagePreferences}
+                  mode="explorer"
+                  detailReasons={detailReasons}
+                  detailRecommendations={detailRecommendations}
+                />
+              </>
+            ) : (
+              <div className="clause-explorer-empty detail-empty">
+                <div className="clause-detail-empty-icon">
+                  <ListChecks size={23} />
+                </div>
+                <span className="card-label">CLAUSE DETAIL</span>
+                <h3>Select a clause to begin</h3>
+                <p>
+                  Choose an item from the list to view its text, risk context,
+                  and recommended next steps.
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
       ) : (
         <ClauseRelErrorBoundary>
           <ClauseRelationships
@@ -2217,6 +2359,8 @@ function getWhatToWatch(clause, rawText, detailReasons = [], detailRecommendatio
   return watchPoints.slice(0, 3);
 }
 
+
+
 function ClauseUnderstandingView({
   clause,
   languagePreferences,
@@ -2224,100 +2368,120 @@ function ClauseUnderstandingView({
   detailReasons = [],
   detailRecommendations = [],
 }) {
-  const rawText = clause?.clauseText || clause?.text || "";
-  const isLong = isLongClause(rawText);
+  const rawText = getClauseSourceText(clause, clause?.clauseText || clause?.text || "");
   const [isOriginalExpanded, setIsOriginalExpanded] = useState(false);
 
-  const simpleExplanation = getShortSimpleExplanation(clause, rawText);
-  const importantPoints = getImportantPoints(clause, rawText);
-  const noticesAndDeadlines = getImportantNoticesAndDeadlines(clause, rawText);
-  const moneyAndConsequences = getMoneyAndConsequences(clause, rawText);
-  const whatToWatch = getWhatToWatch(clause, rawText, detailReasons, detailRecommendations);
+  const whatItSays = getWhatItSays(clause, rawText);
+  const whyImportantPoints = getWhyThisIsImportant(clause, rawText, detailReasons);
+  const potentialConcernPoints = getPotentialConcerns(clause, rawText);
+  const whatToDoPoints = getWhatShouldYouDo(clause, rawText, detailRecommendations);
 
   const charCount = rawText ? rawText.length : 0;
   const wordCount = rawText ? rawText.trim().split(/\s+/).length : 0;
   const clauseNumber = clause?.clause_number || (clause?.clause_id && String(clause.clause_id).replace(/^clause-/, "")) || null;
 
-  // Short clause: keep existing compact presentation
-  if (!isLong) {
-    return (
-      <div className="clause-understanding-container short">
-        <div className="clause-compact-short-card">
-          <p className="clause-compact-text">{rawText || simpleExplanation}</p>
-        </div>
-      </div>
-    );
-  }
+  // Extracted metadata collections for tags
+  const datesList = [
+    ...(Array.isArray(clause?.deadlines) ? clause.deadlines : []),
+    ...(Array.isArray(clause?.dates) ? clause.dates : []),
+    ...(Array.isArray(clause?.durations) ? clause.durations : []),
+  ].filter(Boolean);
+
+  const obligationsList = [
+    ...(Array.isArray(clause?.obligations) ? clause.obligations : []),
+    ...(Array.isArray(clause?.duties) ? clause.duties : []),
+  ].filter(Boolean);
+
+  const permissionsList = [
+    ...(Array.isArray(clause?.rights) ? clause.rights : []),
+    ...(Array.isArray(clause?.permissions) ? clause.permissions : []),
+  ].filter(Boolean);
+
+  const monetaryList = [
+    ...(Array.isArray(clause?.monetary_terms) ? clause.monetary_terms : []),
+    ...(Array.isArray(clause?.fees) ? clause.fees : []),
+    ...(Array.isArray(clause?.penalties) ? clause.penalties : []),
+  ].filter(Boolean);
+
+  const hasExtractedMeta = datesList.length > 0 || obligationsList.length > 0 || permissionsList.length > 0 || monetaryList.length > 0;
 
   return (
-    <div className="clause-understanding-container long">
-      {/* 1. SIMPLE EXPLANATION */}
-      <section className="clause-section-card explanation">
+    <div className="clause-understanding-container">
+      {/* 1. WHAT IT SAYS */}
+      <section className="clause-section-card what-it-says">
         <div className="clause-section-header">
-          <span className="clause-section-label">SIMPLE EXPLANATION</span>
+          <span className="clause-section-icon" aria-hidden="true">📄</span>
+          <span className="clause-section-label">WHAT IT SAYS</span>
         </div>
-        <p className="clause-section-body-text">{simpleExplanation}</p>
+        <p className="clause-section-body-text">{whatItSays}</p>
       </section>
 
-      {/* 2. IMPORTANT POINTS */}
-      {importantPoints.length > 0 && (
-        <section className="clause-section-card points">
-          <div className="clause-section-header">
-            <span className="clause-section-label">IMPORTANT POINTS</span>
-          </div>
-          <ul className="clause-section-bullet-list">
-            {importantPoints.map((pt, idx) => (
-              <li key={idx}>{pt}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* 3. IMPORTANT NOTICES / DEADLINES */}
-      <section className="clause-section-card deadlines">
+      {/* 2. WHY IS THIS IMPORTANT? */}
+      <section className="clause-section-card why-important">
         <div className="clause-section-header">
-          <span className="clause-section-label">IMPORTANT NOTICES / DEADLINES</span>
+          <span className="clause-section-icon" aria-hidden="true">⚠️</span>
+          <span className="clause-section-label">WHY IS THIS IMPORTANT?</span>
         </div>
-        {noticesAndDeadlines.length > 0 ? (
-          <ul className="clause-section-bullet-list">
-            {noticesAndDeadlines.map((dl, idx) => (
-              <li key={idx}>{dl}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="clause-section-empty-note">No specific notice periods or deadlines specified in this clause.</p>
-        )}
+        <ul className="clause-section-bullet-list">
+          {whyImportantPoints.map((pt, idx) => (
+            <li key={idx}>{pt}</li>
+          ))}
+        </ul>
       </section>
 
-      {/* 4. MONEY / PENALTY / CONSEQUENCE (Only if relevant!) */}
-      {moneyAndConsequences && moneyAndConsequences.length > 0 && (
-        <section className="clause-section-card financial">
-          <div className="clause-section-header">
-            <span className="clause-section-label">MONEY / PENALTY / CONSEQUENCE</span>
-          </div>
-          <ul className="clause-section-bullet-list">
-            {moneyAndConsequences.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </section>
+      {/* 3. 🚨 UNCLEAR / POTENTIAL CONCERNS */}
+      <section className="clause-section-card potential-concerns">
+        <div className="clause-section-header">
+          <span className="clause-section-icon" aria-hidden="true">🚨</span>
+          <span className="clause-section-label">UNCLEAR / POTENTIAL CONCERNS</span>
+        </div>
+        <ul className="clause-section-bullet-list potential-concerns-list">
+          {potentialConcernPoints.map((pt, idx) => (
+            <li key={idx}>{pt}</li>
+          ))}
+        </ul>
+      </section>
+
+      {/* 4. WHAT SHOULD YOU DO? */}
+      <section className="clause-section-card what-to-do">
+        <div className="clause-section-header">
+          <span className="clause-section-icon" aria-hidden="true">✅</span>
+          <span className="clause-section-label">WHAT SHOULD YOU DO?</span>
+        </div>
+        <ul className="clause-section-bullet-list what-to-do-list">
+          {whatToDoPoints.map((step, idx) => (
+            <li key={idx}>{step}</li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Extracted metadata chips (dates, obligations, permissions, monetary terms) */}
+      {hasExtractedMeta && (
+        <div className="clause-extracted-meta-row" aria-label="Extracted clause metadata">
+          {datesList.length > 0 && (
+            <span className="clause-meta-tag date" title={datesList.join(", ")}>
+              📅 {datesList.length} date/deadline{datesList.length > 1 ? "s" : ""}
+            </span>
+          )}
+          {obligationsList.length > 0 && (
+            <span className="clause-meta-tag obligation" title={obligationsList.join("; ")}>
+              ⚖️ {obligationsList.length} obligation{obligationsList.length > 1 ? "s" : ""}
+            </span>
+          )}
+          {permissionsList.length > 0 && (
+            <span className="clause-meta-tag permission" title={permissionsList.join("; ")}>
+              🔓 {permissionsList.length} permission{permissionsList.length > 1 ? "s" : ""}
+            </span>
+          )}
+          {monetaryList.length > 0 && (
+            <span className="clause-meta-tag money" title={monetaryList.join(", ")}>
+              💵 {monetaryList.length} financial term{monetaryList.length > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
       )}
 
-      {/* 5. ⚠️ WHAT TO WATCH */}
-      {whatToWatch.length > 0 && (
-        <section className="clause-section-card watch">
-          <div className="clause-section-header">
-            <span className="clause-section-label">⚠️ WHAT TO WATCH</span>
-          </div>
-          <ul className="clause-section-bullet-list watch-list">
-            {whatToWatch.map((w, idx) => (
-              <li key={idx}>{w}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* 6. VIEW ORIGINAL CLAUSE TOGGLE & EVIDENCE */}
+      {/* Collapsible View Original Clause */}
       {rawText && (
         <div className="clause-original-evidence-wrapper">
           <div className="clause-original-evidence-actions">
@@ -2328,10 +2492,11 @@ function ClauseUnderstandingView({
               aria-expanded={isOriginalExpanded}
             >
               <span>{isOriginalExpanded ? "Hide Original Clause" : "View Original Clause"}</span>
+              <span className="clause-expand-hint">{isOriginalExpanded ? "(Hide full text)" : "(Show full text)"}</span>
               {isOriginalExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
             <span className="clause-original-meta-info">
-              {clauseNumber ? `Clause ${clauseNumber}` : (clause.title || "Contract clause")}
+              {clauseNumber ? `Clause ${clauseNumber}` : (clause?.title || "Contract clause")}
               {` • ${charCount.toLocaleString()} chars (~${wordCount} words)`}
             </span>
           </div>
@@ -3572,38 +3737,149 @@ function ClauseRelationships({ fileId, clauses = [], onSelectClause }) {
    REPORTS PAGE
 ========================= */
 
-function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePreferences }) {
+function ReportsPage({
+  fileId,
+  analysis: passedAnalysis,
+  contracts: passedContracts,
+  contractsLoading: passedContractsLoading,
+  contractsError: passedContractsError,
+  onSelectContract,
+  onNavigate,
+  languagePreferences,
+}) {
+  const [internalContracts, setInternalContracts] = useState(null);
+  const [internalContractsLoading, setInternalContractsLoading] = useState(false);
+  const [internalContractsError, setInternalContractsError] = useState("");
+
+  const hasParentContracts = Array.isArray(passedContracts);
+
+  const fetchUserContracts = async () => {
+    setInternalContractsLoading(true);
+    setInternalContractsError("");
+    try {
+      const data = await getContracts();
+      setInternalContracts(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setInternalContractsError(
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to load contracts."
+      );
+    } finally {
+      setInternalContractsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!hasParentContracts) {
+      fetchUserContracts();
+    }
+  }, [hasParentContracts]);
+
+  const userContracts = hasParentContracts
+    ? passedContracts
+    : (internalContracts || []);
+  const contractsLoading = hasParentContracts
+    ? Boolean(passedContractsLoading)
+    : (internalContractsLoading || internalContracts === null);
+  const contractsError = hasParentContracts
+    ? (passedContractsError || "")
+    : internalContractsError;
+
+  const isValidContractId = (id) =>
+    Boolean(id) &&
+    id !== "undefined" &&
+    id !== "null" &&
+    typeof id === "string" &&
+    id.trim().length > 0;
+
+  const matchingContract = isValidContractId(fileId)
+    ? userContracts.find((c) => c.id === fileId)
+    : null;
+
+  const activeContract = matchingContract || (userContracts.length > 0 ? userContracts[0] : null);
+  const activeFileId = activeContract ? activeContract.id : null;
+
   const [summaryData, setSummaryData] = useState(null);
   const [analysisData, setAnalysisData] = useState(null);
   const [relationshipsData, setRelationshipsData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [analysisUnavailable, setAnalysisUnavailable] = useState(false);
   const [summaryError, setSummaryError] = useState("");
   const [relationshipsError, setRelationshipsError] = useState("");
   const [generatedDate, setGeneratedDate] = useState(() => new Date().toLocaleString());
+  const [isAllClausesOpen, setIsAllClausesOpen] = useState(false);
+  const [expandedClauseIds, setExpandedClauseIds] = useState(new Set());
+
+  const toggleClauseExpand = (clauseId) => {
+    setExpandedClauseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(clauseId)) {
+        next.delete(clauseId);
+      } else {
+        next.add(clauseId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllClauses = (allList) => {
+    const list = Array.isArray(allList) ? allList : [];
+    const allIds = new Set(list.map((c, i) => c.clause_id || `clause-${i}`));
+    setExpandedClauseIds(allIds);
+  };
+
+  const collapseAllClauses = () => {
+    setExpandedClauseIds(new Set());
+  };
+
+  const handleFocusClauseInAll = (clauseId) => {
+    setIsAllClausesOpen(true);
+    setExpandedClauseIds((prev) => {
+      const next = new Set(prev);
+      next.add(clauseId);
+      return next;
+    });
+    setTimeout(() => {
+      const el = document.getElementById(`full-clause-card-${clauseId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 120);
+  };
 
   const fetchReportData = async (targetFileId) => {
-    if (!targetFileId) {
+    // If no valid targetFileId or user has 0 contracts, do NOT call report/analysis endpoints!
+    if (!isValidContractId(targetFileId) || userContracts.length === 0) {
       setSummaryData(null);
       setAnalysisData(null);
       setRelationshipsData(null);
       setLoading(false);
       setError("");
+      setAnalysisUnavailable(false);
       return;
     }
 
     setLoading(true);
     setError("");
+    setAnalysisUnavailable(false);
     setSummaryError("");
     setRelationshipsError("");
     setGeneratedDate(new Date().toLocaleString());
+
+    const hasUsablePassedAnalysis =
+      passedAnalysis &&
+      (passedAnalysis.id === targetFileId || passedAnalysis.file_id === targetFileId || !passedAnalysis.id) &&
+      (passedAnalysis?.analyses || passedAnalysis?.clauses || Array.isArray(passedAnalysis));
 
     const requests = [
       getContractSummary(targetFileId)
         .then((data) => ({ status: "fulfilled", type: "summary", data }))
         .catch((err) => ({ status: "rejected", type: "summary", err })),
 
-      (passedAnalysis?.analyses || passedAnalysis?.clauses || Array.isArray(passedAnalysis)
+      (hasUsablePassedAnalysis
         ? Promise.resolve({
           status: "fulfilled",
           type: "analysis",
@@ -3622,6 +3898,7 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
     try {
       const results = await Promise.allSettled(requests);
       let hadAnySuccess = false;
+      let analysisNotFound = false;
 
       results.forEach((res) => {
         if (res.status === "fulfilled") {
@@ -3632,6 +3909,12 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
             if (item.type === "analysis") setAnalysisData(item.data);
             if (item.type === "relationships") setRelationshipsData(item.data);
           } else {
+            if (item.type === "analysis") {
+              const status = item.err?.response?.status || item.err?.status;
+              if (status === 404) {
+                analysisNotFound = true;
+              }
+            }
             if (item.type === "summary") {
               setSummaryError(item.err?.response?.data?.detail || "Summary data could not be retrieved.");
             }
@@ -3642,16 +3925,25 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
         }
       });
 
-      if (passedAnalysis && !analysisData) {
+      if (hasUsablePassedAnalysis && !analysisData) {
         setAnalysisData(passedAnalysis);
         hadAnySuccess = true;
       }
 
       if (!hadAnySuccess) {
-        setError("Unable to generate report. Failed to retrieve contract analysis data.");
+        if (analysisNotFound) {
+          setAnalysisUnavailable(true);
+        } else {
+          setError("Unable to generate report. Failed to retrieve contract analysis data.");
+        }
       }
     } catch (err) {
-      setError(err?.response?.data?.detail || err?.message || "Failed to load report data.");
+      const status = err?.response?.status || err?.status;
+      if (status === 404) {
+        setAnalysisUnavailable(true);
+      } else {
+        setError(err?.response?.data?.detail || err?.message || "Failed to load report data.");
+      }
     } finally {
       setLoading(false);
     }
@@ -3659,20 +3951,40 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
 
   useEffect(() => {
     let cancelled = false;
-    if (fileId) {
-      fetchReportData(fileId);
+
+    if (contractsLoading) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (userContracts.length === 0) {
+      setSummaryData(null);
+      setAnalysisData(null);
+      setRelationshipsData(null);
+      setLoading(false);
+      setError("");
+      setAnalysisUnavailable(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (activeFileId) {
+      fetchReportData(activeFileId);
     } else {
       setSummaryData(null);
       setAnalysisData(null);
       setRelationshipsData(null);
       setLoading(false);
       setError("");
+      setAnalysisUnavailable(false);
     }
 
     return () => {
       cancelled = true;
     };
-  }, [fileId]);
+  }, [activeFileId, contractsLoading, userContracts.length]);
 
   // Normalized clauses
   const rawClauses =
@@ -3686,169 +3998,43 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
 
   const clauses = Array.isArray(rawClauses) ? rawClauses : [];
 
-  const currentSummary = summaryData?.file_id === fileId ? summaryData : null;
+  const currentSummary = summaryData?.file_id === activeFileId ? summaryData : null;
 
   const contractName =
+    activeContract?.filename ||
+    activeContract?.name ||
     passedAnalysis?.filename ||
     passedAnalysis?.file_name ||
     passedAnalysis?.contract_name ||
     analysisData?.filename ||
     analysisData?.file_name ||
     analysisData?.contract_name ||
-    (fileId ? `Contract (${fileId.slice(0, 8)}...)` : "No contract selected");
+    (activeFileId ? `Contract (${activeFileId.slice(0, 8)}...)` : "No contract selected");
 
-  const overallRisk = String(
-    currentSummary?.overall_risk ||
-    passedAnalysis?.overall_risk ||
-    analysisData?.overall_risk ||
-    "UNRATED"
-  ).toUpperCase();
+  const execMetrics = getExecutiveSummaryMetrics(clauses, currentSummary, passedAnalysis);
+  const priorityIssues = getPriorityIssues(clauses);
+  const financialTerms = getKeyFinancialTerms(clauses, currentSummary);
+  const keyObligations = getKeyObligations(clauses, currentSummary);
+  const importantDeadlines = getImportantDeadlines(clauses, currentSummary);
+  const reportConcerns = getReportPotentialConcerns(clauses);
+  const meaningfulRelationships = getMeaningfulRelationships(relationshipsData, clauses);
 
-  const overallRiskScore = Number(
-    currentSummary?.overall_risk_score ??
-    passedAnalysis?.overall_risk_score ??
-    analysisData?.overall_risk_score ??
-    0
-  );
-
-  const riskCounts = {
-    high: currentSummary?.risk_summary?.high ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "HIGH").length,
-    medium: currentSummary?.risk_summary?.medium ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "MEDIUM").length,
-    low: currentSummary?.risk_summary?.low ?? clauses.filter((c) => String(c?.risk_level || c?.risk).toUpperCase() === "LOW").length,
-  };
-
-  const totalClauses =
-    currentSummary?.total_clauses ||
-    clauses.length ||
-    (riskCounts.high + riskCounts.medium + riskCounts.low);
-
-  const highRiskClauses = clauses.filter(
-    (c) => String(c?.risk_level || c?.risk).toUpperCase() === "HIGH"
-  );
-
-  const recommendationsList = clauses
-    .filter((c) => c?.recommendation && String(c.recommendation).trim().length > 0)
-    .map((c) => {
-      const title = c.title || (c.clause_number ? `Clause ${c.clause_number}` : c.clause_id);
-      return {
-        clauseId: c.clause_id,
-        clauseNumber: c.clause_number,
-        title: title,
-        clauseTitle: title,
-        riskLevel: String(c.risk_level || "LOW").toUpperCase(),
-        riskScore: c.risk_score ?? 0,
-        recommendation: c.recommendation,
-        whyItMatters: c.why_it_matters || null,
-      };
-    });
+  const overallRisk = execMetrics.overallRisk;
+  const overallRiskScore = execMetrics.overallRiskScore;
+  const riskCounts = execMetrics.riskCounts;
+  const totalClauses = execMetrics.totalClauses;
 
   const relationships = Array.isArray(relationshipsData?.relationships)
     ? relationshipsData.relationships
     : [];
 
-  const relationshipTypes = relationships.reduce((acc, rel) => {
-    const t = (rel.relationship_type || "REFERENCE").toUpperCase();
-    acc[t] = (acc[t] || 0) + 1;
-    return acc;
-  }, {});
-
-  const collectValues = (fields) => [
-    ...new Set(
-      clauses.flatMap((clause) =>
-        fields.flatMap((field) => {
-          const value = clause?.[field];
-          if (Array.isArray(value)) return value;
-          return value ? [value] : [];
-        })
-      )
-    ),
-  ].filter(Boolean);
-
-  const plainSummary =
-    currentSummary?.summary_points ||
-    currentSummary?.summary ||
-    passedAnalysis?.summary_points ||
-    passedAnalysis?.summary ||
-    [];
-
-  const executiveSections = [
-    {
-      id: "parties",
-      title: "Key Parties & Entities",
-      icon: Users,
-      items: collectValues([
-        "parties",
-        "entities",
-        "persons",
-        "organizations",
-        "authorities",
-      ]),
-    },
-    {
-      id: "obligations",
-      title: "Important Obligations",
-      icon: ListChecks,
-      items: [
-        ...new Set([
-          ...collectValues(["obligations", "duties"]),
-          ...(Array.isArray(currentSummary?.key_obligations) ? currentSummary.key_obligations : []),
-        ]),
-      ],
-    },
-    {
-      id: "rights",
-      title: "Important Rights",
-      icon: ShieldAlert,
-      items: [
-        ...new Set([
-          ...collectValues(["rights", "permissions"]),
-          ...(Array.isArray(currentSummary?.key_rights) ? currentSummary.key_rights : []),
-        ]),
-      ],
-    },
-    {
-      id: "conditions",
-      title: "Conditions & Exceptions",
-      icon: FileText,
-      items: collectValues(["conditions", "triggers", "exceptions"]),
-    },
-    {
-      id: "financial",
-      title: "Financial Terms & Penalties",
-      icon: DollarSign,
-      items: [
-        ...new Set([
-          ...collectValues([
-            "monetary_terms",
-            "financial_terms",
-            "compensation_terms",
-            "fees",
-            "penalties",
-            "taxes",
-          ]),
-          ...(Array.isArray(currentSummary?.monetary_terms) ? currentSummary.monetary_terms : []),
-        ]),
-      ],
-    },
-    {
-      id: "dates",
-      title: "Deadlines & Critical Dates",
-      icon: CalendarDays,
-      items: [
-        ...new Set([
-          ...collectValues(["dates", "deadlines", "durations"]),
-          ...(Array.isArray(currentSummary?.deadlines) ? currentSummary.deadlines : []),
-        ]),
-      ],
-    },
-  ];
-
   const handleExportJson = () => {
     const reportPayload = {
-      term_shield_version: "0.1.0",
+      term_shield_version: "0.2.0",
+      report_type: "executive_contract_report",
       generated_at: new Date().toISOString(),
       contract_metadata: {
-        id: fileId,
+        id: activeFileId,
         filename: contractName,
         generated_date: generatedDate,
         total_clauses: totalClauses,
@@ -3862,43 +4048,28 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
         total_clause_count: totalClauses,
       },
       executive_summary: {
-        summary_points: Array.isArray(plainSummary) ? plainSummary : [plainSummary].filter(Boolean),
-        parties: executiveSections.find((s) => s.id === "parties")?.items || [],
-        obligations: executiveSections.find((s) => s.id === "obligations")?.items || [],
-        rights: executiveSections.find((s) => s.id === "rights")?.items || [],
-        conditions: executiveSections.find((s) => s.id === "conditions")?.items || [],
-        financial_terms: executiveSections.find((s) => s.id === "financial")?.items || [],
-        deadlines: executiveSections.find((s) => s.id === "dates")?.items || [],
+        overall_risk: overallRisk,
+        overall_risk_score: overallRiskScore,
+        risk_counts: riskCounts,
+        total_clauses: totalClauses,
       },
-      high_risk_clauses: highRiskClauses.map((c) => ({
-        clause_id: c.clause_id,
-        clause_number: c.clause_number || null,
-        title: c.title || null,
-        risk_level: c.risk_level,
-        risk_score: c.risk_score,
-        why_it_matters: c.why_it_matters || null,
-        recommendation: c.recommendation || null,
-        risk_factors: c.risk_factors || [],
+      priority_issues: priorityIssues.map((p) => ({
+        clause_id: p.clauseId,
+        clause_number: p.clauseNumber,
+        title: p.title,
+        risk_level: p.riskLevel,
+        risk_score: p.riskScore,
+        reason: p.shortReason,
+        action: p.shortAction,
       })),
-      recommendations: recommendationsList.map((r) => ({
-        clause_id: r.clauseId,
-        clause_title: r.clauseTitle,
-        risk_level: r.riskLevel,
-        risk_score: r.riskScore,
-        recommendation: r.recommendation,
-        why_it_matters: r.whyItMatters,
-      })),
-      relationship_summary: {
-        total_relationships: relationships.length,
-        relationship_types: relationshipTypes,
-        relationships: relationships.map((r) => ({
-          source_clause_id: r.source_clause_id,
-          target_clause_id: r.target_clause_id,
-          relationship_type: r.relationship_type,
-          confidence: r.confidence,
-          evidence: r.evidence,
-        })),
-      },
+      key_financial_terms: financialTerms,
+      key_obligations: keyObligations,
+      important_deadlines: importantDeadlines,
+      potential_concerns: reportConcerns,
+      clause_relationships: meaningfulRelationships,
+      all_clauses: clauses,
+      raw_relationships: relationships,
+      summary_data: currentSummary,
     };
 
     const blob = new Blob([JSON.stringify(reportPayload, null, 2)], {
@@ -3908,7 +4079,7 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
     const downloadLink = document.createElement("a");
     const sanitizedName = contractName.replace(/[^a-zA-Z0-9_-]/g, "_");
     downloadLink.href = url;
-    downloadLink.download = `TermShield_Report_${sanitizedName}_${(fileId || "").slice(0, 8)}.json`;
+    downloadLink.download = `TermShield_Report_${sanitizedName}_${(activeFileId || "").slice(0, 8)}.json`;
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
@@ -3919,7 +4090,144 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
     window.print();
   };
 
-  if (!fileId) {
+  // 1. Loading state for contracts
+  if (contractsLoading) {
+    return (
+      <div className="reports-page">
+        <section className="reports-loading-state">
+          <Loader2 size={32} className="spin" />
+          <h3>Loading Contracts...</h3>
+          <p>Retrieving your contract library to prepare executive reports.</p>
+        </section>
+      </div>
+    );
+  }
+
+  // 2. Contracts fetch error (API/network failure)
+  if (contractsError) {
+    return (
+      <div className="reports-page">
+        <section className="reports-error-state">
+          <AlertCircle size={32} />
+          <h3>Failed to Load Contracts</h3>
+          <p>{contractsError}</p>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={fetchUserContracts}
+          >
+            <RefreshCw size={15} />
+            <span>Retry</span>
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  // 3. User has ZERO contracts -> Proper empty state (Requirement 2)
+  if (userContracts.length === 0) {
+    return (
+      <div className="reports-page">
+        <section className="reports-empty-state">
+          <div className="reports-empty-icon">
+            <FileText size={28} />
+          </div>
+          <span className="card-label">NO REPORTS YET</span>
+          <h3>No Reports Yet</h3>
+          <p>Upload a contract to generate your first analysis report.</p>
+          <div className="reports-empty-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => onNavigate && onNavigate("upload")}
+            >
+              <Upload size={16} />
+              <span>+ Upload Contract</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // 4. Report data compiling / loading
+  if (loading) {
+    return (
+      <div className="reports-page">
+        <section className="reports-loading-state">
+          <Loader2 size={32} className="spin" />
+          <h3>Compiling Contract Report</h3>
+          <p>Analyzing risk distributions, executive points, and clause relationships for {contractName}...</p>
+        </section>
+      </div>
+    );
+  }
+
+  // 5. Contract exists but analysis is unavailable (Requirement 4)
+  if (analysisUnavailable) {
+    return (
+      <div className="reports-page">
+        <section className="reports-empty-state reports-analysis-unavailable-state">
+          <div className="reports-empty-icon" style={{ background: "#fef3c7", color: "#d97706" }}>
+            <FileQuestion size={28} />
+          </div>
+          <span className="card-label">ANALYSIS UNAVAILABLE</span>
+          <h3>Analysis Not Available</h3>
+          <p>
+            Analysis data has not been generated for "{contractName}" yet. Run an analysis on this contract or select another document from your library.
+          </p>
+          <div className="reports-empty-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                if (onSelectContract && activeFileId) {
+                  onSelectContract(activeFileId, false);
+                } else if (onNavigate) {
+                  onNavigate("analysis");
+                }
+              }}
+            >
+              <FileSearch size={16} />
+              <span>Analyze Contract</span>
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onNavigate && onNavigate("contracts")}
+            >
+              <FileText size={16} />
+              <span>Browse Contract Library</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // 6. Report generation failed (API/network/server failure) (Requirement 4)
+  if (error) {
+    return (
+      <div className="reports-page">
+        <section className="reports-error-state">
+          <AlertCircle size={32} />
+          <h3>Report Generation Failed</h3>
+          <p>{error}</p>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => fetchReportData(activeFileId)}
+          >
+            <RefreshCw size={15} />
+            <span>Retry Generating Report</span>
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  // Fallback if no active contract could be resolved
+  if (!activeFileId) {
     return (
       <div className="reports-page">
         <section className="reports-empty-state">
@@ -3954,33 +4262,49 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
     );
   }
 
-  if (loading) {
-    return (
-      <div className="reports-page">
-        <section className="reports-loading-state">
-          <Loader2 size={32} className="spin" />
-          <h3>Compiling Contract Report</h3>
-          <p>Analyzing risk distributions, executive points, and clause relationships for {contractName}...</p>
-        </section>
-      </div>
-    );
-  }
+  // Check if report has content
+  const hasReportContent =
+    clauses.length > 0 ||
+    Boolean(currentSummary) ||
+    Boolean(passedAnalysis?.analyses?.length) ||
+    Boolean(passedAnalysis?.clauses?.length);
 
-  if (error) {
+  if (!hasReportContent) {
     return (
       <div className="reports-page">
-        <section className="reports-error-state">
-          <AlertCircle size={32} />
-          <h3>Report Generation Failed</h3>
-          <p>{error}</p>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => fetchReportData(fileId)}
-          >
-            <RefreshCw size={15} />
-            <span>Retry Generating Report</span>
-          </button>
+        <section className="reports-empty-state reports-analysis-unavailable-state">
+          <div className="reports-empty-icon" style={{ background: "#fef3c7", color: "#d97706" }}>
+            <FileQuestion size={28} />
+          </div>
+          <span className="card-label">ANALYSIS UNAVAILABLE</span>
+          <h3>Analysis Not Available</h3>
+          <p>
+            Analysis data has not been generated for "{contractName}" yet. Run an analysis on this contract or select another document from your library.
+          </p>
+          <div className="reports-empty-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                if (onSelectContract && activeFileId) {
+                  onSelectContract(activeFileId, false);
+                } else if (onNavigate) {
+                  onNavigate("analysis");
+                }
+              }}
+            >
+              <FileSearch size={16} />
+              <span>Analyze Contract</span>
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => onNavigate && onNavigate("contracts")}
+            >
+              <FileText size={16} />
+              <span>Browse Contract Library</span>
+            </button>
+          </div>
         </section>
       </div>
     );
@@ -4006,7 +4330,7 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
 
           <div className="report-meta-pills">
             <span className="meta-pill">
-              <strong>Contract ID:</strong> {fileId}
+              <strong>Contract ID:</strong> {activeFileId}
             </span>
             <span className="meta-pill">
               <strong>Generated:</strong> {generatedDate}
@@ -4015,6 +4339,39 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
               <strong>Total Clauses:</strong> {totalClauses}
             </span>
           </div>
+
+          {userContracts.length > 1 && (
+            <div className="report-contract-selector" style={{ marginTop: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <label htmlFor="report-contract-dropdown" style={{ fontSize: "12px", fontWeight: "600", color: "#646370" }}>
+                Switch Contract:
+              </label>
+              <select
+                id="report-contract-dropdown"
+                value={activeFileId || ""}
+                onChange={(e) => {
+                  const newId = e.target.value;
+                  if (onSelectContract) {
+                    onSelectContract(newId, true);
+                  }
+                }}
+                style={{
+                  fontSize: "12px",
+                  padding: "5px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  color: "#1f2937",
+                  cursor: "pointer",
+                }}
+              >
+                {userContracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.filename || c.name || `Contract ${c.id.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="report-header-actions">
@@ -4051,212 +4408,118 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
         </div>
       )}
 
-      {/* 2. RISK OVERVIEW SECTION */}
-      <section className="report-card report-overview-card">
-        <div className="report-card-heading">
-          <div className="report-card-icon risk">
-            <ShieldAlert size={18} />
-          </div>
-          <div>
-            <span className="card-label">RISK PROFILE</span>
-            <h3>Risk Assessment &amp; Clause Distribution</h3>
-          </div>
-        </div>
-
-        <div className="risk-overview-grid">
-          <div className="risk-score-box">
-            <span className="score-num">{overallRiskScore}</span>
-            <span className="score-denom">/ 100</span>
-            <span className={`risk-tag-large ${overallRisk.toLowerCase()}`}>{overallRisk} RISK</span>
-            <span className="score-desc">Calculated based on weighted severity across all evaluated clauses.</span>
-          </div>
-
-          <div className="risk-breakdown-box">
-            <div className="risk-stat-pills">
-              <div className="risk-stat-pill high">
-                <span className="pill-count">{riskCounts.high}</span>
-                <span className="pill-label">High Risk</span>
-              </div>
-              <div className="risk-stat-pill medium">
-                <span className="pill-count">{riskCounts.medium}</span>
-                <span className="pill-label">Medium Risk</span>
-              </div>
-              <div className="risk-stat-pill low">
-                <span className="pill-count">{riskCounts.low}</span>
-                <span className="pill-label">Low Risk</span>
-              </div>
-              <div className="risk-stat-pill total">
-                <span className="pill-count">{totalClauses}</span>
-                <span className="pill-label">Total Evaluated</span>
-              </div>
-            </div>
-
-            <div className="risk-bar-container">
-              <div className="risk-bar-label-row">
-                <span>Distribution Breakdown</span>
-                <span>{highPct}% High • {medPct}% Med • {lowPct}% Low</span>
-              </div>
-              <div className="risk-bar-track">
-                <div className="risk-bar-fill high" style={{ width: `${highPct}%` }} title={`High risk: ${highPct}%`} />
-                <div className="risk-bar-fill medium" style={{ width: `${medPct}%` }} title={`Medium risk: ${medPct}%`} />
-                <div className="risk-bar-fill low" style={{ width: `${lowPct}%` }} title={`Low risk: ${lowPct}%`} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. EXECUTIVE SUMMARY SECTION */}
-      <section className="report-card report-executive-card">
+      {/* 1. EXECUTIVE SUMMARY */}
+      <section className="report-card report-executive-summary-card">
         <div className="report-card-heading">
           <div className="report-card-icon summary">
             <Sparkles size={18} />
           </div>
           <div>
-            <span className="card-label">PLAIN-LANGUAGE SYNTHESIS</span>
-            <h3>Executive Summary</h3>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 1</span>
+            <h3>1. Executive Summary</h3>
           </div>
-          {Boolean(plainSummary?.length) && (
-            <div className="report-heading-action">
-              <ListenButton
-                text={Array.isArray(plainSummary) ? plainSummary.join(". ") : plainSummary}
-                size="sm"
-                label="Listen"
-                preferredLanguage={languagePreferences?.language}
-              />
+        </div>
+
+        <div className="exec-summary-metrics-grid">
+          <div className={`exec-metric-card risk-level ${overallRisk.toLowerCase()}`}>
+            <span className="exec-metric-label">Overall Risk</span>
+            <span className="exec-metric-value">{overallRisk}</span>
+            <span className="exec-metric-sub">Contract Risk Rating</span>
+          </div>
+
+          <div className="exec-metric-card risk-score">
+            <span className="exec-metric-label">Risk Score</span>
+            <div className="exec-score-row">
+              <span className="exec-metric-value">{overallRiskScore}</span>
+              <span className="exec-metric-denom">/ 100</span>
             </div>
-          )}
+            <span className="exec-metric-sub">Weighted Severity</span>
+          </div>
+
+          <div className="exec-metric-card high-risk">
+            <span className="exec-metric-label">High Risk Clauses</span>
+            <span className="exec-metric-value">{riskCounts.high}</span>
+            <span className="exec-metric-sub">Priority attention</span>
+          </div>
+
+          <div className="exec-metric-card med-risk">
+            <span className="exec-metric-label">Medium Risk Clauses</span>
+            <span className="exec-metric-value">{riskCounts.medium}</span>
+            <span className="exec-metric-sub">Review recommended</span>
+          </div>
+
+          <div className="exec-metric-card low-risk">
+            <span className="exec-metric-label">Low Risk Clauses</span>
+            <span className="exec-metric-value">{riskCounts.low}</span>
+            <span className="exec-metric-sub">Standard terms</span>
+          </div>
+
+          <div className="exec-metric-card total-clauses">
+            <span className="exec-metric-label">Total Clauses</span>
+            <span className="exec-metric-value">{totalClauses}</span>
+            <span className="exec-metric-sub">Analyzed provisions</span>
+          </div>
         </div>
 
-        <div className="executive-summary-body">
-          {plainSummary?.length ? (
-            Array.isArray(plainSummary) ? (
-              <ul className="executive-points-list">
-                {plainSummary.map((point, index) => (
-                  <li key={index}>{point}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="executive-paragraph">{plainSummary}</p>
-            )
-          ) : (
-            <p className="summary-unavailable">A plain-language summary was not generated for this contract.</p>
-          )}
-        </div>
-
-        <div className="report-sections-grid">
-          {executiveSections.map((sec) => (
-            <ReportSectionItem key={sec.id} {...sec} />
-          ))}
+        <div className="risk-bar-container" style={{ marginTop: "16px" }}>
+          <div className="risk-bar-label-row">
+            <span>Clause Severity Distribution</span>
+            <span>{highPct}% High • {medPct}% Medium • {lowPct}% Low</span>
+          </div>
+          <div className="risk-bar-track">
+            <div className="risk-bar-fill high" style={{ width: `${highPct}%` }} title={`High risk: ${highPct}%`} />
+            <div className="risk-bar-fill medium" style={{ width: `${medPct}%` }} title={`Medium risk: ${medPct}%`} />
+            <div className="risk-bar-fill low" style={{ width: `${lowPct}%` }} title={`Low risk: ${lowPct}%`} />
+          </div>
         </div>
       </section>
 
-      {/* 4. HIGH-RISK CLAUSES SECTION */}
-      <section className="report-card report-high-risk-card">
+      {/* 2. PRIORITY ISSUES */}
+      <section className="report-card report-priority-issues-card">
         <div className="report-card-heading">
-          <div className="report-card-icon high-risk">
+          <div className="report-card-icon risk">
             <ShieldAlert size={18} />
           </div>
           <div>
-            <span className="card-label">PRIORITY ATTENTION</span>
-            <h3>High-Risk Clauses ({highRiskClauses.length})</h3>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 2</span>
+            <h3>2. Priority Issues ({priorityIssues.length})</h3>
           </div>
         </div>
 
-        {highRiskClauses.length > 0 ? (
-          <div className="high-risk-clauses-list">
-            {highRiskClauses.map((clause, idx) => {
-              const displayTitle =
-                clause.title ||
-                (clause.clause_number ? `Clause ${clause.clause_number}` : `Clause ${idx + 1}`);
-
-              return (
-                <div key={clause.clause_id || idx} className="high-risk-clause-row">
-                  <div className="clause-row-header">
-                    <div className="clause-row-title-wrap">
-                      <span className="clause-badge high">HIGH RISK</span>
-                      <h4>{displayTitle}</h4>
-                      {clause.clause_type && (
-                        <span className="clause-type-tag">{clause.clause_type}</span>
-                      )}
-                    </div>
-                    <span className="clause-score-pill">Score {clause.risk_score ?? 0}/100</span>
+        {priorityIssues.length > 0 ? (
+          <div className="priority-issues-list">
+            {priorityIssues.map((issue) => (
+              <div key={issue.clauseId} className={`priority-issue-card ${issue.riskLevel.toLowerCase()}`}>
+                <div className="priority-issue-header">
+                  <div className="priority-title-wrap">
+                    <span className={`clause-badge ${issue.riskLevel.toLowerCase()}`}>
+                      {issue.riskLevel} RISK
+                    </span>
+                    <h4>{issue.title}</h4>
                   </div>
-
-                  {clause.why_it_matters && (
-                    <div className="clause-callout why-matters">
-                      <strong>Why It Matters:</strong>
-                      <p>{clause.why_it_matters}</p>
-                    </div>
-                  )}
-
-                  {clause.recommendation && (
-                    <div className="clause-callout recommendation">
-                      <strong>Recommendation:</strong>
-                      <p>{clause.recommendation}</p>
-                    </div>
-                  )}
-
-                  {Array.isArray(clause.risk_factors) && clause.risk_factors.length > 0 && (
-                    <div className="clause-factors-row">
-                      <span className="factors-label">Risk Factors:</span>
-                      {clause.risk_factors.map((f, fIdx) => (
-                        <span key={fIdx} className="factor-tag">
-                          {f}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {clause.text && (
-                    <div className="clause-excerpt-box">
-                      <span className="excerpt-label">Clause Excerpt:</span>
-                      <p className="excerpt-text">&ldquo;{clause.text.slice(0, 320)}{clause.text.length > 320 ? "..." : ""}&rdquo;</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="report-zero-state">
-            <CheckCircle2 size={24} className="success-icon" />
-            <h4>No High-Risk Clauses Detected</h4>
-            <p>None of the segmented clauses in this contract crossed the high-risk threshold.</p>
-          </div>
-        )}
-      </section>
-
-      {/* 5. RECOMMENDATIONS SECTION */}
-      <section className="report-card report-recommendations-card">
-        <div className="report-card-heading">
-          <div className="report-card-icon rec">
-            <ListChecks size={18} />
-          </div>
-          <div>
-            <span className="card-label">ACTIONABLE ADVICE</span>
-            <h3>Contract Recommendations ({recommendationsList.length})</h3>
-          </div>
-        </div>
-
-        {recommendationsList.length > 0 ? (
-          <div className="recommendations-list">
-            {recommendationsList.map((rec, idx) => (
-              <div key={rec.clauseId || idx} className="recommendation-item">
-                <div className="rec-item-header">
-                  <span className={`rec-risk-tag ${rec.riskLevel.toLowerCase()}`}>
-                    {rec.riskLevel}
-                  </span>
-                  <strong>{rec.clauseTitle}</strong>
+                  <span className="clause-score-pill">Score {issue.riskScore}/100</span>
                 </div>
 
-                <div className="rec-item-body">
-                  <p className="rec-text">{rec.recommendation}</p>
-                  {rec.whyItMatters && (
-                    <p className="rec-context">
-                      <span>Context:</span> {rec.whyItMatters}
-                    </p>
-                  )}
+                <div className="priority-issue-body">
+                  <div className="priority-field">
+                    <span className="priority-field-label">Why it matters:</span>
+                    <p className="priority-field-text">{issue.shortReason}</p>
+                  </div>
+                  <div className="priority-field action">
+                    <span className="priority-field-label">Action / Review:</span>
+                    <p className="priority-field-text">{issue.shortAction}</p>
+                  </div>
+                </div>
+
+                <div className="priority-card-footer">
+                  <button
+                    type="button"
+                    className="priority-inspect-btn"
+                    onClick={() => handleFocusClauseInAll(issue.clauseId)}
+                  >
+                    <span>View in Full Clauses List</span>
+                    <ArrowRight size={13} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -4264,53 +4527,176 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
         ) : (
           <div className="report-zero-state">
             <CheckCircle2 size={24} className="success-icon" />
-            <h4>No Specific Recommendations</h4>
-            <p>No actionable recommendations were generated for this agreement based on current analysis findings.</p>
+            <h4>No Critical Issues Identified</h4>
+            <p>None of the detected clauses crossed the high-risk or priority attention threshold.</p>
           </div>
         )}
       </section>
 
-      {/* 6. CLAUSE RELATIONSHIP SUMMARY */}
+      {/* 3. KEY FINANCIAL TERMS */}
+      <section className="report-card report-financial-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon" style={{ background: "#ecfdf5", color: "#059669" }}>
+            <DollarSign size={18} />
+          </div>
+          <div>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 3</span>
+            <h3>3. Key Financial Terms ({financialTerms.length})</h3>
+          </div>
+        </div>
+
+        {financialTerms.length > 0 ? (
+          <div className="financial-terms-grid">
+            {financialTerms.map((term, idx) => (
+              <div key={idx} className="financial-term-card">
+                <span className="fin-term-label">{term.label}</span>
+                <span className="fin-term-value">{term.value}</span>
+                {term.context && (
+                  <span className="fin-term-context">
+                    Ref: <strong>{term.context}</strong>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No Specific Financial Limits Found</h4>
+            <p>No explicit dollar figures, insurance requirements, or late fees were extracted.</p>
+          </div>
+        )}
+      </section>
+
+      {/* 4. KEY OBLIGATIONS */}
+      <section className="report-card report-obligations-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon" style={{ background: "#eff6ff", color: "#2563eb" }}>
+            <ListChecks size={18} />
+          </div>
+          <div>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 4</span>
+            <h3>4. Key Obligations ({keyObligations.length})</h3>
+          </div>
+        </div>
+
+        {keyObligations.length > 0 ? (
+          <ul className="executive-obligations-list">
+            {keyObligations.map((ob, idx) => (
+              <li key={idx} className="executive-obligation-item">
+                <CheckCircle2 size={16} className="ob-check-icon" />
+                <span>{ob}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No Primary Obligations Detected</h4>
+            <p>No explicit mandatory obligations were categorized in this contract.</p>
+          </div>
+        )}
+      </section>
+
+      {/* 5. IMPORTANT DEADLINES */}
+      <section className="report-card report-deadlines-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon" style={{ background: "#fffbeb", color: "#d97706" }}>
+            <CalendarDays size={18} />
+          </div>
+          <div>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 5</span>
+            <h3>5. Important Deadlines ({importantDeadlines.length})</h3>
+          </div>
+        </div>
+
+        {importantDeadlines.length > 0 ? (
+          <div className="executive-deadlines-grid">
+            {importantDeadlines.map((dl, idx) => (
+              <div key={idx} className="executive-deadline-card">
+                <div className="deadline-badge-row">
+                  <span className="deadline-type-badge">{dl.type}</span>
+                  <Clock size={13} className="deadline-clock-icon" />
+                </div>
+                <strong className="deadline-text">{dl.text}</strong>
+                {dl.clauseTitle && (
+                  <span className="deadline-context">
+                    Clause: <strong>{dl.clauseTitle}</strong>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No Strict Deadlines Detected</h4>
+            <p>No advance notice, cure periods, or payment windows were identified.</p>
+          </div>
+        )}
+      </section>
+
+      {/* 6. POTENTIAL CONCERNS */}
+      <section className="report-card report-concerns-card">
+        <div className="report-card-heading">
+          <div className="report-card-icon" style={{ background: "#fef3c7", color: "#b45309" }}>
+            <AlertCircle size={18} />
+          </div>
+          <div>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 6</span>
+            <h3>6. Potential Concerns ({reportConcerns.length})</h3>
+          </div>
+        </div>
+
+        {reportConcerns.length > 0 ? (
+          <div className="executive-concerns-list">
+            {reportConcerns.map((item, idx) => (
+              <div key={idx} className="executive-concern-card">
+                <div className="concern-card-header">
+                  <AlertCircle size={15} className="concern-alert-icon" />
+                  <strong>{item.clauseTitle}</strong>
+                </div>
+                <p className="concern-card-text">{item.concern}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="report-zero-state">
+            <CheckCircle2 size={24} className="success-icon" />
+            <h4>No Critical Concerns Detected</h4>
+            <p>No missing exhibits, blanks, or severe ambiguities were found.</p>
+          </div>
+        )}
+      </section>
+
+      {/* 7. IMPORTANT CLAUSE RELATIONSHIPS */}
       <section className="report-card report-relationships-card">
         <div className="report-card-heading">
           <div className="report-card-icon rel">
             <Network size={18} />
           </div>
           <div>
-            <span className="card-label">INTER-CLAUSE DYNAMICS</span>
-            <h3>Clause Relationships &amp; Dependencies ({relationships.length})</h3>
+            <span className="card-label">EXECUTIVE REPORT • SECTION 7</span>
+            <h3>7. Important Clause Relationships ({meaningfulRelationships.length})</h3>
           </div>
         </div>
 
-        {relationships.length > 0 ? (
-          <>
-            <div className="relationship-types-row">
-              {Object.entries(relationshipTypes).map(([type, count]) => (
-                <span key={type} className="rel-type-count-pill">
-                  <strong>{type}</strong>
-                  <span className="count-num">{count}</span>
-                </span>
-              ))}
-            </div>
-
-            <div className="relationships-summary-list">
-              {relationships.map((rel, idx) => (
-                <div key={idx} className="rel-summary-row">
-                  <div className="rel-summary-flow">
-                    <span className="rel-clause-id">{rel.source_clause_id}</span>
-                    <ArrowRight size={13} className="rel-arrow" />
-                    <span className="rel-clause-id">{rel.target_clause_id || "Agreement Scope"}</span>
-                    <span className="rel-type-badge">{rel.relationship_type}</span>
-                    <span className="rel-conf-pill">{Math.round((rel.confidence ?? 1.0) * 100)}% confidence</span>
-                  </div>
-
-                  {rel.evidence && (
-                    <p className="rel-evidence-snippet">&ldquo;{rel.evidence}&rdquo;</p>
-                  )}
+        {meaningfulRelationships.length > 0 ? (
+          <div className="executive-relationships-list">
+            {meaningfulRelationships.map((rel, idx) => (
+              <div key={idx} className="executive-rel-row">
+                <div className="executive-rel-flow">
+                  <span className="rel-source-box">{rel.sourceTitle}</span>
+                  <ArrowRight size={14} className="rel-arrow-icon" />
+                  <span className="rel-target-box">{rel.targetTitle}</span>
+                  <span className="rel-type-badge">{rel.relationshipType}</span>
                 </div>
-              ))}
-            </div>
-          </>
+                {rel.evidence && (
+                  <p className="rel-evidence-snippet">&ldquo;{rel.evidence}&rdquo;</p>
+                )}
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="report-zero-state">
             <FileText size={24} className="muted-icon" />
@@ -4319,29 +4705,113 @@ function ReportsPage({ fileId, analysis: passedAnalysis, onNavigate, languagePre
           </div>
         )}
       </section>
-    </div>
-  );
-}
 
-function ReportSectionItem({ title, icon: Icon, items }) {
-  return (
-    <div className="report-section-item">
-      <div className="report-section-item-header">
-        <div className="report-section-mini-icon">
-          <Icon size={14} />
+      {/* 8. ALL DETECTED CLAUSES */}
+      <section className="report-card report-all-clauses-card" id="section-all-detected-clauses">
+        <div className="all-clauses-header-row">
+          <div className="report-card-heading" style={{ marginBottom: 0 }}>
+            <div className="report-card-icon" style={{ background: "#f3f4f6", color: "#374151" }}>
+              <FileText size={18} />
+            </div>
+            <div>
+              <span className="card-label">EXECUTIVE REPORT • SECTION 8</span>
+              <h3>8. All Detected Clauses ({totalClauses})</h3>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="master-clauses-toggle-btn"
+            onClick={() => setIsAllClausesOpen((prev) => !prev)}
+            aria-expanded={isAllClausesOpen}
+          >
+            <span>{isAllClausesOpen ? `Hide All ${totalClauses} Clauses` : `View All ${totalClauses} Clauses`}</span>
+            {isAllClausesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
-        <h4>{title}</h4>
-      </div>
 
-      {items && items.length > 0 ? (
-        <ul className="report-section-list">
-          {items.map((it, idx) => (
-            <li key={idx}>{it}</li>
-          ))}
-        </ul>
-      ) : (
-        <span className="report-section-none">None detected</span>
-      )}
+        {isAllClausesOpen && (
+          <div className="all-clauses-expanded-content">
+            <div className="all-clauses-toolbar">
+              <span className="all-clauses-count-indicator">
+                Showing all <strong>{clauses.length}</strong> contract clauses with full Clause Intelligence:
+              </span>
+              <div className="all-clauses-actions">
+                <button
+                  type="button"
+                  className="all-clauses-tool-btn"
+                  onClick={() => expandAllClauses(clauses)}
+                >
+                  Expand All ({clauses.length})
+                </button>
+                <button
+                  type="button"
+                  className="all-clauses-tool-btn"
+                  onClick={collapseAllClauses}
+                >
+                  Collapse All
+                </button>
+              </div>
+            </div>
+
+            <div className="collapsible-clauses-list">
+              {clauses.map((clause, idx) => {
+                const clauseId = clause.clause_id || `clause-${idx}`;
+                const isExpanded = expandedClauseIds.has(clauseId);
+                const clauseNum = clause.clause_number || (clause.clause_id && String(clause.clause_id).replace(/^clause-/, "")) || (idx + 1);
+                const displayTitle = clause.title || `Clause ${clauseNum}`;
+                const riskLevel = String(clause.risk_level || clause.risk || "LOW").toUpperCase();
+                const riskScore = clause.risk_score ?? clause.score ?? 0;
+
+                return (
+                  <div
+                    key={clauseId}
+                    id={`full-clause-card-${clauseId}`}
+                    className={`collapsible-clause-item ${isExpanded ? "expanded" : "collapsed"}`}
+                  >
+                    <button
+                      type="button"
+                      className="collapsible-clause-header"
+                      onClick={() => toggleClauseExpand(clauseId)}
+                      aria-expanded={isExpanded}
+                    >
+                      <div className="clause-header-left">
+                        <span className={`clause-badge ${riskLevel.toLowerCase()}`}>
+                          {riskLevel}
+                        </span>
+                        <span className="clause-number-tag">#{clauseNum}</span>
+                        <h4 className="collapsible-clause-title">{displayTitle}</h4>
+                        {clause.clause_type && (
+                          <span className="clause-type-tag">{clause.clause_type}</span>
+                        )}
+                      </div>
+
+                      <div className="clause-header-right">
+                        <span className="clause-score-pill">Score {riskScore}/100</span>
+                        <span className="clause-toggle-icon">
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </span>
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="collapsible-clause-body">
+                        <ClauseUnderstandingView
+                          clause={clause}
+                          languagePreferences={languagePreferences}
+                          mode="report"
+                          detailReasons={clause.risk_reasons || []}
+                          detailRecommendations={clause.recommendations || (clause.recommendation ? [clause.recommendation] : [])}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -4511,6 +4981,8 @@ function AskMyTC({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [qaError, setQaError] = useState("");
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
 
@@ -4528,10 +5000,31 @@ function AskMyTC({
     { label: "Can I cancel?", query: "Can I cancel or terminate early?" },
     { label: "When does it renew?", query: "When does this contract renew?" },
     { label: "Missed deadline?", query: "What happens if I miss a deadline?" },
+    { label: "Major risk", query: "What is the major risk in this contract?" },
   ];
 
   const handleQuickQuestion = (q) => {
     handleSend(q);
+  };
+
+  const handleConfirmClearChat = async () => {
+    if (!activeFileId || isClearing) return;
+    setIsClearing(true);
+    try {
+      await clearQAHistory(activeFileId);
+      setMessages([]);
+      setIsClearModalOpen(false);
+      setQaError("");
+    } catch (err) {
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to clear conversation history.";
+      setQaError(message);
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const fetchHistory = async (targetFileId) => {
@@ -4614,19 +5107,11 @@ function AskMyTC({
     setIsAsking(true);
 
     try {
-      let questionToSend = question;
       const prefLang = languagePreferences?.language || "English";
-      const hasExplicitLang =
-        /[\u0C00-\u0D7F]/.test(question) ||
-        /\b(?:telugu|hindi|tamil|kannada|malayalam|marathi|bengali|urdu|english|spanish|french|german)\b/i.test(question);
-
-      if (!hasExplicitLang && prefLang && prefLang.toLowerCase() !== "english") {
-        questionToSend = `${question} (Explain in ${prefLang})`;
-      }
-
       const response = await askContractQuestion(
         activeFileId,
-        questionToSend
+        question,
+        prefLang
       );
 
       if (!response?.answer) {
@@ -4665,6 +5150,39 @@ function AskMyTC({
 
   return (
     <div className="ask-page">
+      {isClearModalOpen && (
+        <div className="ask-clear-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title">
+          <div className="ask-clear-modal-card">
+            <div className="ask-clear-modal-header">
+              <AlertCircle size={22} className="ask-clear-modal-icon" />
+              <h3 id="clear-chat-title">Clear this chat?</h3>
+            </div>
+            <p className="ask-clear-modal-body">
+              This will remove the Ask My T&amp;C conversation history for this contract. Your contract and analysis will not be deleted.
+            </p>
+            <div className="ask-clear-modal-actions">
+              <button
+                type="button"
+                className="ask-clear-cancel-btn"
+                onClick={() => setIsClearModalOpen(false)}
+                disabled={isClearing}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ask-clear-confirm-btn"
+                onClick={handleConfirmClearChat}
+                disabled={isClearing}
+              >
+                {isClearing ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
+                <span>{isClearing ? "Clearing..." : "Clear Chat"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <section className="ask-chat-shell">
         <div className="ask-chat-header">
           <div className="ask-assistant-avatar">
@@ -4686,10 +5204,24 @@ function AskMyTC({
                 : "Waiting for a contract"}
             </span>
           </div>
-          <span className="ask-chat-status">
-            <span className="status-indicator-dot" />
-            Verified QA
-          </span>
+          <div className="ask-header-right-actions">
+            {hasContract && messages.length > 0 && (
+              <button
+                type="button"
+                className="ask-clear-chat-header-btn"
+                onClick={() => setIsClearModalOpen(true)}
+                disabled={isAsking || historyLoading || isClearing}
+                title="Clear conversation history for this contract"
+              >
+                <Trash2 size={13} />
+                <span>Clear Chat</span>
+              </button>
+            )}
+            <span className="ask-chat-status">
+              <span className="status-indicator-dot" />
+              Verified QA
+            </span>
+          </div>
         </div>
 
         <div className="ask-chat-messages" ref={messagesContainerRef} aria-live="polite">
@@ -4960,6 +5492,23 @@ function Dashboard({
   onSelectContract,
   currentUser,
 }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const isBusy = Boolean(contractsLoading || isRefreshing);
+
+  const handleRefreshClick = async () => {
+    if (isBusy) return;
+    setIsRefreshing(true);
+    try {
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch {
+      // Handled via contractsError state in UI
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const hour = new Date().getHours();
   const timeGreeting =
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -4969,95 +5518,22 @@ function Dashboard({
       ? currentUser.email.split("@")[0]
       : "";
 
-  const totalContracts = contracts.length;
-
-  const highRiskContracts = contracts.filter((c) => {
-    const r = String(c?.overall_risk || "").toLowerCase();
-    return r === "high";
-  });
-
-  const medRiskContracts = contracts.filter((c) => {
-    const r = String(c?.overall_risk || "").toLowerCase();
-    return r === "medium" || r === "med";
-  });
-
-  const lowRiskContracts = contracts.filter((c) => {
-    const r = String(c?.overall_risk || "").toLowerCase();
-    return r === "low";
-  });
-
-  const scoredContracts = contracts.filter(
-    (c) => typeof c?.overall_risk_score === "number" && c.overall_risk_score >= 0
-  );
-
-  const avgRiskScore =
-    scoredContracts.length > 0
-      ? Math.round(
-        scoredContracts.reduce((acc, c) => acc + c.overall_risk_score, 0) /
-        scoredContracts.length
-      )
-      : null;
-
-  const analyzedContracts = contracts.filter((c) => {
-    const status = String(c?.status || "").toLowerCase();
-    return (
-      status === "analyzed" ||
-      status === "ready" ||
-      Boolean(c?.overall_risk) ||
-      (typeof c?.overall_risk_score === "number" && c.overall_risk_score > 0)
-    );
-  }).length;
-
-  const ratedCount =
-    highRiskContracts.length + medRiskContracts.length + lowRiskContracts.length;
-  const riskBase = ratedCount > 0 ? ratedCount : 1;
-  const highPct =
-    ratedCount > 0 ? Math.round((highRiskContracts.length / riskBase) * 100) : 0;
-  const medPct =
-    ratedCount > 0 ? Math.round((medRiskContracts.length / riskBase) * 100) : 0;
-  const lowPct = ratedCount > 0 ? Math.max(0, 100 - highPct - medPct) : 0;
-
-  const recentContracts = contracts.slice(0, 5);
-
-  const attentionContracts = [...highRiskContracts].sort(
-    (a, b) => (b.overall_risk_score || 0) - (a.overall_risk_score || 0)
-  );
-
-  const chronologicalContracts = [...scoredContracts].sort((a, b) => {
-    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
-    return timeA - timeB;
-  });
-
-  const hasTrend = chronologicalContracts.length >= 2;
-  const latestScored = hasTrend
-    ? chronologicalContracts[chronologicalContracts.length - 1]
-    : null;
-  const previousScored = hasTrend
-    ? chronologicalContracts.slice(0, chronologicalContracts.length - 1)
-    : [];
-  const previousAvgScore =
-    previousScored.length > 0
-      ? Math.round(
-        previousScored.reduce((acc, c) => acc + (c.overall_risk_score || 0), 0) /
-        previousScored.length
-      )
-      : null;
-
-  const formatContractDate = (dateStr) => {
-    if (!dateStr) return "Unknown date";
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return "Unknown date";
-      return d.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return "Unknown date";
-    }
-  };
+  const {
+    totalContracts,
+    highRiskContracts,
+    medRiskContracts,
+    lowRiskContracts,
+    avgRiskScore,
+    analyzedContracts,
+    highPct,
+    medPct,
+    lowPct,
+    recentContracts,
+    attentionContracts,
+    chronologicalContracts,
+    hasTrend,
+    trendSummaryText,
+  } = computeDashboardMetrics(contracts);
 
   const handleContractClick = (contractId) => {
     if (onSelectContract) {
@@ -5090,10 +5566,11 @@ function Dashboard({
             <button
               type="button"
               className="primary-button"
-              onClick={() => onRefresh && onRefresh()}
+              onClick={handleRefreshClick}
+              disabled={isBusy}
             >
-              <RefreshCw size={15} />
-              <span>Retry Connection</span>
+              <RefreshCw size={15} className={isBusy ? "spin" : ""} />
+              <span>{isBusy ? "Connecting..." : "Retry Connection"}</span>
             </button>
             <button
               type="button"
@@ -5135,11 +5612,12 @@ function Dashboard({
               <button
                 type="button"
                 className="secondary-button dashboard-refresh-btn"
-                onClick={() => onRefresh && onRefresh()}
+                onClick={handleRefreshClick}
+                disabled={isBusy}
                 title="Refresh workspace library"
               >
-                <RefreshCw size={15} />
-                <span>Refresh</span>
+                <RefreshCw size={15} className={isBusy ? "spin" : ""} />
+                <span>{isBusy ? "Refreshing..." : "Refresh"}</span>
               </button>
               <button
                 className="primary-button"
@@ -5214,19 +5692,22 @@ function Dashboard({
 
         <div className="welcome-actions">
           <span className="workspace-status">
-            <span className="status-dot" />
-            Workspace active • {totalContracts} contract{totalContracts === 1 ? "" : "s"}
+            <span className={`status-dot ${isBusy ? "pulsing" : ""}`} />
+            {isBusy
+              ? "Refreshing workspace contracts..."
+              : `Workspace active • ${totalContracts} contract${totalContracts === 1 ? "" : "s"}`}
           </span>
 
           <div className="dashboard-header-buttons">
             <button
               type="button"
               className="secondary-button dashboard-refresh-btn"
-              onClick={() => onRefresh && onRefresh()}
+              onClick={handleRefreshClick}
+              disabled={isBusy}
               title="Refresh workspace contracts"
             >
-              <RefreshCw size={15} className={contractsLoading ? "spin" : ""} />
-              <span>Refresh</span>
+              <RefreshCw size={15} className={isBusy ? "spin" : ""} />
+              <span>{isBusy ? "Refreshing..." : "Refresh"}</span>
             </button>
             <button
               className="primary-button"
@@ -5239,6 +5720,26 @@ function Dashboard({
           </div>
         </div>
       </section>
+
+      {/* ERROR ALERT BANNER (when refreshing fails while contracts are displayed) */}
+      {contractsError && totalContracts > 0 && (
+        <div className="dashboard-alert-banner error" role="alert">
+          <div className="dashboard-alert-content">
+            <AlertCircle size={18} />
+            <span>{contractsError}</span>
+          </div>
+          <button
+            type="button"
+            className="secondary-button dashboard-retry-btn"
+            onClick={handleRefreshClick}
+            disabled={isBusy}
+            title="Retry loading contracts"
+          >
+            <RefreshCw size={13} className={isBusy ? "spin" : ""} />
+            <span>{isBusy ? "Retrying..." : "Retry"}</span>
+          </button>
+        </div>
+      )}
 
       {/* 2. WORKSPACE METRICS */}
       <section className="stats-grid workspace-stats-grid">
@@ -5439,15 +5940,7 @@ function Dashboard({
 
           <div className="trend-summary-note">
             <Clock size={15} />
-            <span>
-              {latestScored && previousAvgScore !== null
-                ? latestScored.overall_risk_score < previousAvgScore
-                  ? `Recent addition (${latestScored.filename}) lowered portfolio risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
-                  : latestScored.overall_risk_score > previousAvgScore
-                    ? `Recent addition (${latestScored.filename}) introduced higher risk: scored ${latestScored.overall_risk_score}/100 vs previous average of ${previousAvgScore}/100.`
-                    : `Recent addition (${latestScored.filename}) matched baseline risk at ${latestScored.overall_risk_score}/100.`
-                : "Tracking chronological contract evaluations."}
-            </span>
+            <span>{trendSummaryText}</span>
           </div>
 
           <div className="risk-trend-timeline">
@@ -6424,8 +6917,7 @@ function RiskAnalysis({
                 clause?.plain_language ||
                 clause?.explanation ||
                 clause?.summary ||
-                clause?.text ||
-                "No explanation available.";
+                "";
 
               const score =
                 clause?.risk_score ??
@@ -6486,10 +6978,11 @@ function RiskAnalysis({
                       </span>
                       {(() => {
                         const rawRiskText = clause?.text || clause?.clause_text || clause?.content || "";
-                        const isLong = isLongClause(rawRiskText);
-                        const speechText = isLong
-                          ? `${title}. Simple explanation: ${getShortSimpleExplanation(clause, rawRiskText)}. Important points: ${getImportantPoints(clause, rawRiskText).join(". ")}`
-                          : `${title}. ${meaning}${reasons.length ? ". Why this matters: " + reasons.join(". ") : ""}`;
+                        const whatItSays = getWhatItSays(clause, rawRiskText);
+                        const whyImportant = getWhyThisIsImportant(clause, rawRiskText, reasons);
+                        const potentialConcerns = getPotentialConcerns(clause, rawRiskText);
+                        const whatToDo = getWhatShouldYouDo(clause, rawRiskText, recommendations);
+                        const speechText = `${title}. What it says: ${whatItSays}. Why is this important: ${whyImportant.join(". ")}. Unclear or potential concerns: ${potentialConcerns.join(". ")}. What should you do: ${whatToDo.join(". ")}`;
                         return (
                           <ListenButton
                             text={speechText}
@@ -6506,6 +6999,8 @@ function RiskAnalysis({
                     clause={{
                       ...clause,
                       clauseText: clause?.text || clause?.clause_text || clause?.content || "",
+                      risk_level: risk,
+                      risk_score: score,
                       meaning,
                       title,
                     }}
@@ -7459,17 +7954,20 @@ function EditProfileModal({
 }) {
   const [name, setName] = useState(initialName || "");
   const [photo, setPhoto] = useState(initialPhoto || null);
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef(null);
 
   const handlePhotoSelect = (e) => {
+    setError("");
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (JPG, PNG, WebP).");
+      setError("Please select an image file (JPG, PNG, WebP).");
       return;
     }
     if (file.size > 3 * 1024 * 1024) {
-      alert("Image size should be under 3MB.");
+      setError("Image size should be under 3MB.");
       return;
     }
     const reader = new FileReader();
@@ -7480,15 +7978,40 @@ function EditProfileModal({
   };
 
   const handleRemovePhoto = () => {
+    setError("");
     setPhoto(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSave(name, photo);
+    setError("");
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Display name cannot be empty.");
+      return;
+    }
+    if (trimmed.length < 2) {
+      setError("Display name must be at least 2 characters.");
+      return;
+    }
+    if (trimmed.length > 100) {
+      setError("Display name cannot exceed 100 characters.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await onSave(trimmed, photo);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === "string" ? detail : (err?.message || "Failed to save profile changes.");
+      setError(msg);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -7500,12 +8023,30 @@ function EditProfileModal({
             <h3>Edit Profile</h3>
             <p>Update your display name and personal avatar</p>
           </div>
-          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal">
+          <button type="button" className="ts-modal-close-btn" onClick={onClose} aria-label="Close modal" disabled={isSaving}>
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="edit-profile-form">
+          {error && (
+            <div
+              className="edit-profile-error"
+              role="alert"
+              style={{
+                color: "#ef4444",
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.2)",
+                borderRadius: "6px",
+                padding: "8px 12px",
+                fontSize: "0.85rem",
+                marginBottom: "1rem",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
           {/* Photo Section */}
           <div className="edit-profile-avatar-row">
             <div className="edit-avatar-container">
@@ -7529,6 +8070,7 @@ function EditProfileModal({
                   type="button"
                   className="secondary-button"
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={isSaving}
                 >
                   <Camera size={14} />
                   <span>{photo ? "Change Photo" : "Upload Photo"}</span>
@@ -7538,6 +8080,7 @@ function EditProfileModal({
                     type="button"
                     className="secondary-button text-danger"
                     onClick={handleRemovePhoto}
+                    disabled={isSaving}
                   >
                     <Trash2 size={14} />
                     <span>Remove</span>
@@ -7545,7 +8088,7 @@ function EditProfileModal({
                 )}
               </div>
               <span className="edit-avatar-hint">
-                Recommended 1:1 square. Stored locally in your browser.
+                Recommended 1:1 square. Saved securely to your account.
               </span>
             </div>
           </div>
@@ -7559,9 +8102,13 @@ function EditProfileModal({
               id="edit-profile-name"
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError("");
+              }}
               placeholder="e.g. Jane Doe"
               required
+              disabled={isSaving}
             />
           </div>
 
@@ -7589,15 +8136,17 @@ function EditProfileModal({
               type="button"
               className="secondary-button"
               onClick={onClose}
+              disabled={isSaving}
             >
               Cancel
             </button>
             <button
               type="submit"
               className="primary-button"
+              disabled={isSaving}
             >
               <CheckCircle2 size={16} />
-              <span>Save Changes</span>
+              <span>{isSaving ? "Saving..." : "Save Changes"}</span>
             </button>
           </div>
         </form>
@@ -7959,3 +8508,12 @@ function PlaceholderPage({
 }
 
 export default App;
+export {
+  Dashboard,
+  ClauseUnderstandingView,
+  detectClauseCategory,
+  getWhatItSays,
+  getWhyThisIsImportant,
+  getPotentialConcerns,
+  getWhatShouldYouDo,
+};

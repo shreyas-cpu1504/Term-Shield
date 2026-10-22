@@ -8,6 +8,7 @@ import pytest
 
 from app.core.database import close_db, init_db
 from app.main import app
+from app.services.file_ingestion_service import FileIngestionService
 
 
 def test_health_check_endpoint():
@@ -157,7 +158,7 @@ def test_full_contract_lifecycle_and_cascade(client: TestClient):
     assert history[0]["question"] == "What is the fee or payment amount?"
 
     # Check that disk artifacts exist before deletion
-    extracted_path = Path("storage/extracted") / f"{file_id}.txt"
+    extracted_path = FileIngestionService.EXTRACTED_DIR / f"{file_id}.txt"
     assert extracted_path.is_file()
 
     # 8. Delete contract
@@ -292,7 +293,7 @@ def test_contract_deletion_cleans_storage_uploads(client: TestClient):
     assert resp.status_code == 200
     file_id = resp.json()["file_id"]
 
-    raw_upload = Path("storage/uploads") / f"{file_id}.txt"
+    raw_upload = FileIngestionService.UPLOAD_DIR / f"{file_id}.txt"
     assert raw_upload.is_file(), "Raw upload file should exist before deletion"
 
     del_resp = client.delete(f"/api/v1/contracts/{file_id}")

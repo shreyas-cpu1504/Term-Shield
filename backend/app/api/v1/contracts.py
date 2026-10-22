@@ -12,6 +12,7 @@ from app.models.contract import Contract
 from app.models.qa_history import QAHistory
 from app.models.user import User
 from app.schemas.contract import ContractResponse
+from app.services.storage_service import get_storage_service
 
 
 router = APIRouter(
@@ -70,7 +71,10 @@ async def delete_contract(
     await db.delete(contract)
     await db.commit()
 
+    storage = get_storage_service()
+
     # Clean up extracted text file if present
+    storage.delete_extracted_text(contract.id)
     if contract.extracted_text_path:
         try:
             path = Path(contract.extracted_text_path)
@@ -80,21 +84,12 @@ async def delete_contract(
             pass
 
     # Clean up disk clause cache if present
-    clause_cache = Path("storage/clauses") / f"{contract.id}.json"
-    if clause_cache.is_file():
-        try:
-            clause_cache.unlink()
-        except OSError:
-            pass
+    storage.delete_clauses_json(contract.id)
 
     # Clean up uploaded raw file if present
     if contract.file_type:
-        upload_path = Path("storage/uploads") / f"{contract.id}.{contract.file_type}"
-        if upload_path.is_file():
-            try:
-                upload_path.unlink()
-            except OSError:
-                pass
+        storage.delete_upload(contract.id, contract.file_type)
+
 
     return {
         "message": "Contract deleted successfully",

@@ -1,4 +1,4 @@
-import apiClient from "./client";
+import apiClient from "./client.js";
 
 export async function registerUser(data) {
   const response = await apiClient.post(
@@ -43,6 +43,36 @@ export async function exchangeOAuthCode(code) {
   const response = await apiClient.post(
     "/auth/oauth/exchange",
     { code }
+  );
+
+  return response.data;
+}
+
+export async function forgotPassword(email) {
+  const response = await apiClient.post(
+    "/auth/forgot-password",
+    { email }
+  );
+
+  return response.data;
+}
+
+export async function resetPassword(token, newPassword) {
+  const response = await apiClient.post(
+    "/auth/reset-password",
+    {
+      token,
+      new_password: newPassword,
+    }
+  );
+
+  return response.data;
+}
+
+export async function updateProfile(data) {
+  const response = await apiClient.patch(
+    "/auth/profile",
+    data
   );
 
   return response.data;

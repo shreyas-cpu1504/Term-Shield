@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from app.schemas.clause import Clause
+from app.services.storage_service import get_storage_service
 
 
 class ClauseStorageService:
@@ -23,14 +24,6 @@ class ClauseStorageService:
         file_id: str,
         clauses: list[Clause],
     ) -> Path:
-
-        cls.CLAUSES_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        output_path = cls._get_path(file_id)
-
         data = {
             "file_id": file_id,
             "clause_count": len(clauses),
@@ -39,37 +32,17 @@ class ClauseStorageService:
                 for clause in clauses
             ],
         }
-
-        output_path.write_text(
-            json.dumps(
-                data,
-                indent=2,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-
-        return output_path
+        saved_path = get_storage_service().save_clauses_json(file_id, data)
+        return Path(saved_path)
 
     @classmethod
     def load_clauses(
         cls,
         file_id: str,
     ) -> list[Clause]:
-
-        try:
-            file_path = cls._get_path(file_id)
-        except ValueError:
+        data = get_storage_service().load_clauses_json(file_id)
+        if not data or "clauses" not in data:
             return []
-
-        if not file_path.exists():
-            return []
-
-        data = json.loads(
-            file_path.read_text(
-                encoding="utf-8",
-            )
-        )
 
         return [
             Clause(**clause)

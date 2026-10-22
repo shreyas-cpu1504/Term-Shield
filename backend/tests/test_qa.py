@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.schemas.clause import Clause
 from app.services.file_ingestion_service import FileIngestionService
+from app.services.clause_storage_service import ClauseStorageService
 from app.services.qa_service import QAService
 
 
@@ -71,7 +72,7 @@ def test_contract_qa_endpoint(client):
                     path.unlink()
 
         clauses_path = (
-            Path("storage/clauses")
+            ClauseStorageService.CLAUSES_DIR
             / f"{file_id}.json"
         )
 
@@ -134,7 +135,7 @@ def test_contract_qa_termination_question(client):
                     path.unlink()
 
         clauses_path = (
-            Path("storage/clauses")
+            ClauseStorageService.CLAUSES_DIR
             / f"{file_id}.json"
         )
 
@@ -366,7 +367,6 @@ def test_qa_off_topic_scope_check():
 
     assert response.confidence == 0.0
     assert response.evidence == []
-    assert "Paris" in response.answer
     assert "contract" in response.answer.lower()
     assert "not enough relevant information" not in response.answer.lower()
 
@@ -723,12 +723,13 @@ def test_qa_conversational_endpoint_does_not_store_history(client):
 
     finally:
         from app.services.file_ingestion_service import FileIngestionService
+        from app.services.clause_storage_service import ClauseStorageService
         from pathlib import Path
         for d in (FileIngestionService.UPLOAD_DIR, FileIngestionService.EXTRACTED_DIR):
             if d.exists():
                 for p in d.glob(f"{file_id}.*"):
                     p.unlink()
-        cp = Path("storage/clauses") / f"{file_id}.json"
+        cp = ClauseStorageService.CLAUSES_DIR / f"{file_id}.json"
         if cp.exists():
             cp.unlink()
 
@@ -743,7 +744,7 @@ def test_qa_off_topic_french_capital_still_rejected():
 
     assert response.confidence == 0.0
     assert response.evidence == []
-    assert "Paris" in response.answer
+    assert "Paris" not in response.answer
     assert "contract" in response.answer.lower()
     assert "not enough relevant information" not in response.answer.lower()
 
@@ -1720,7 +1721,7 @@ def test_qa_regression_conversational_followups():
 
 
 def test_qa_regression_unrelated_trivia_concise():
-    """Verify unrelated questions give concise answers with a contract assistance offer."""
+    """Verify unrelated questions give a contract-scope response."""
     clauses = sample_test_clauses()
     res = QAService.answer(
         file_id="test-file",
@@ -1729,6 +1730,173 @@ def test_qa_regression_unrelated_trivia_concise():
     )
     assert res.confidence == 0.0
     assert res.evidence == []
-    assert "Paris" in res.answer
+    assert "Paris" not in res.answer
     assert "contract" in res.answer.lower()
-    assert "I'm designed primarily to help with your contract..." not in res.answer
+
+
+def test_qa_direct_clause_queries():
+    c1 = Clause(
+        clause_id="clause-1",
+        clause_number="1",
+        title="Scope of Services",
+        text="1. DUTIES. The Consultant agrees to exercise special skill to perform services as specified in Exhibit A.",
+        order=1,
+        character_count=107,
+    )
+    c2 = Clause(
+        clause_id="clause-2",
+        clause_number="2",
+        title="Payment & Customer Obligations",
+        text="2. OBLIGATIONS. The Customer shall pay all fees within 30 days and maintain appropriate insurance.",
+        order=2,
+        character_count=100,
+    )
+    c10 = Clause(
+        clause_id="clause-22",
+        clause_number="10",
+        title="Licenses",
+        text="10. LICENSES. If a license of any kind is required of Consultant, Consultant shall obtain it.",
+        order=22,
+        character_count=93,
+    )
+    c40 = Clause(
+        clause_id="clause-40",
+        clause_number="40",
+        title="Execution",
+        text="40. EXECUTION. This agreement may be executed in counterparts.",
+        order=40,
+        character_count=62,
+    )
+    test_clauses = [c1, c2, c10, c40]
+
+    # 1. "What is clause 1?"
+    r1 = QAService.answer(file_id="test", question="What is clause 1?", clauses=test_clauses)
+    assert r1.evidence
+    assert r1.evidence[0].clause_number == "1"
+    assert "Duties" in r1.answer or "Scope of Services" in r1.answer or "Consultant" in r1.answer
+    assert "could not determine" not in r1.answer.lower()
+
+    # 2. "What is clause 1 from the pdf?"
+    r2 = QAService.answer(file_id="test", question="What is clause 1 from the pdf?", clauses=test_clauses)
+    assert r2.evidence
+    assert r2.evidence[0].clause_number == "1"
+    assert "could not determine" not in r2.answer.lower()
+
+    # 3. "What does clause 1 say?"
+    r3 = QAService.answer(file_id="test", question="What does clause 1 say?", clauses=test_clauses)
+    assert r3.evidence
+    assert r3.evidence[0].clause_number == "1"
+    assert "exercise special skill" in r3.answer or "DUTIES" in r3.answer
+
+    # 4. "Explain clause 1."
+    r4 = QAService.answer(file_id="test", question="Explain clause 1.", clauses=test_clauses)
+    assert r4.evidence
+    assert r4.evidence[0].clause_number == "1"
+    assert "What it says" in r4.answer or "means" in r4.answer
+
+    # 5. "Tell me about clause 1."
+    r5 = QAService.answer(file_id="test", question="Tell me about clause 1.", clauses=test_clauses)
+    assert r5.evidence
+    assert r5.evidence[0].clause_number == "1"
+
+    # 6. "What is clause 10?" -> MUST return Clause 10, not Clause 1
+    r6 = QAService.answer(file_id="test", question="What is clause 10?", clauses=test_clauses)
+    assert r6.evidence
+    assert r6.evidence[0].clause_number == "10"
+    assert r6.evidence[0].clause_number != "1"
+    assert "license" in r6.answer.lower() or "licenses" in r6.answer.lower()
+
+    # 7. "What is clause 40?" -> MUST return Clause 40
+    r7 = QAService.answer(file_id="test", question="What is clause 40?", clauses=test_clauses)
+    assert r7.evidence
+    assert r7.evidence[0].clause_number == "40"
+    assert "execution" in r7.answer.lower() or "counterparts" in r7.answer.lower()
+
+    # 8. Nonexistent clause "What is clause 999?" -> clear message not found
+    r8 = QAService.answer(file_id="test", question="What is clause 999?", clauses=test_clauses)
+    assert len(r8.evidence) == 0
+    assert "Clause 999 was not found" in r8.answer or "not found" in r8.answer.lower()
+
+    # 9. Follow-up: "Explain it simply." after Clause 1 -> refers to Clause 1
+    r9 = QAService.answer(
+        file_id="test",
+        question="Explain it simply.",
+        clauses=test_clauses,
+        previous_question="What is clause 1?",
+        previous_answer=r1.answer,
+        previous_evidence=r1.evidence,
+    )
+    assert r9.evidence
+    assert r9.evidence[0].clause_number == "1"
+    assert "Clause 1" in r9.answer
+
+    # 10. Follow-up: "What are my obligations under it?" -> must use Clause 1
+    r10 = QAService.answer(
+        file_id="test",
+        question="What are my obligations under it?",
+        clauses=test_clauses,
+        previous_question="What is clause 1?",
+        previous_answer=r1.answer,
+        previous_evidence=r1.evidence,
+    )
+    assert r10.evidence
+    assert r10.evidence[0].clause_number == "1"
+    assert "Clause 1" in r10.answer or "obligation" in r10.answer.lower()
+
+    # 11. Normal question: "What are my obligations?" still uses normal retrieval
+    r11 = QAService.answer(file_id="test", question="What are my obligations?", clauses=test_clauses)
+    assert len(r11.evidence) >= 1
+    assert "could not determine" not in r11.answer.lower()
+
+    # 12. Unrelated question: rejected by scope gate
+    r12 = QAService.answer(file_id="test", question="What is the capital of France?", clauses=test_clauses)
+    assert "contract" in r12.answer.lower()
+
+
+def test_qa_gemini_version_direct_answer():
+    """Verify 'what gemini version are u using' answers configured gemini-flash-latest without retrieval."""
+    test_clauses = [
+        Clause(clause_id="c1", order=1, character_count=50, clause_number="1", title="Payment", text="Pay within 30 days."),
+    ]
+    for q in ["what gemini version are u using", "what gemini version are you using", "which version of gemini"]:
+        res = QAService.answer(file_id="test", question=q, clauses=test_clauses)
+        assert res.confidence == 1.0
+        assert len(res.evidence) == 0
+        assert "gemini-flash-latest" in res.answer
+        assert "I'm designed primarily to help with your contract" not in res.answer
+
+
+def test_qa_major_risk_clause_6():
+    """Verify 'what is the major risk?' analyzes contract clauses and surfaces Clause 6 unlimited liability."""
+    sample_clauses = [
+        Clause(clause_id="c1", order=1, character_count=100, clause_number="1", title="Services and Payment", text="The Service Provider shall provide services. Customer pays INR 50,000 within 30 days. Late payment has 2% interest."),
+        Clause(clause_id="c2", order=2, character_count=100, clause_number="2", title="Cancellation", text="Customer may cancel by providing 15 days notice. Cancellation charge of INR 5,000 applies."),
+        Clause(clause_id="c6", order=6, character_count=100, clause_number="6", title="Liability", text="The Customer shall have unlimited liability for all losses, damages, and costs arising from any breach of this Agreement."),
+    ]
+    res = QAService.answer(file_id="test", question="what is the major risk?", clauses=sample_clauses)
+    assert any(e.clause_number == "6" for e in res.evidence)
+    assert "Clause 6" in res.answer
+    assert "unlimited" in res.answer.lower() and "liability" in res.answer.lower()
+    assert "breach" in res.answer.lower()
+
+
+def test_qa_termination_answer_completeness():
+    """Verify cancellation/termination answers are complete sentences and not cut off mid-sentence."""
+    clauses = [
+        Clause(clause_id="c1", order=1, character_count=150, clause_number="18", title="Termination", text="18.1 If CONSULTANT breaches any provision of this Agreement, or fails to satisfy any\nwarranty, COMMISSION shall have the right in its discretion to terminate the Agreement without liability; to\nrecover from CONSULTANT all costs incurred by COMMISSION.\n18.2 Either party may terminate with 30 days notice."),
+    ]
+    res = QAService.answer(file_id="test", question="Can I cancel or terminate early?", clauses=clauses)
+    ans = res.answer.strip()
+    assert not ans.endswith("; to"), "Answer must not end with wrapped line fragment '; to'"
+    assert ans[-1] in {".", "!", "?", "\"", "'"}, "Answer must end with proper punctuation"
+
+
+def test_qa_clause_1_in_simple_terms():
+    """Verify direct clause lookup for Clause 1 provides concrete obligations."""
+    clauses = [
+        Clause(clause_id="c1", order=1, character_count=200, clause_number="1", title="Services and Payment", text="The Service Provider shall provide the services described in this Agreement. The Customer agrees to pay a service fee of INR 50,000 (Rupees Fifty Thousand only) within 30 days of receiving the invoice. If payment is not made within the stated period, an interest charge of 2% per month shall apply on the outstanding amount."),
+    ]
+    res = QAService.answer(file_id="test", question="what is clause 1", clauses=clauses)
+    assert "Service Provider provides the agreed services" in res.answer
+    assert "Customer pays INR 50,000 within 30 days of invoice" in res.answer
+    assert "Late payment has 2% monthly interest" in res.answer

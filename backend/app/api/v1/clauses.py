@@ -263,6 +263,8 @@ def _analysis_to_schema(analysis) -> ClauseAnalysis:
         risk_score=data["risk_score"],
         risk_reasons=data["risk_reasons"],
         user_impact=data["user_impact"],
+        why_important=data.get("why_important", []),
+        potential_concerns=data.get("potential_concerns", []),
         recommendations=data["recommendations"],
 
         # Analysis metadata

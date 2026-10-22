@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from app.core.config import get_settings
+from app.services.storage_service import get_storage_service
 
 
 class FileIngestionService:
@@ -86,21 +87,7 @@ class FileIngestionService:
             )
 
         file_id = str(uuid4())
-
-        FileIngestionService.UPLOAD_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        stored_filename = f"{file_id}{extension}"
-        stored_path = (
-            FileIngestionService.UPLOAD_DIR / stored_filename
-        ).resolve()
-
-        if not stored_path.is_relative_to(FileIngestionService.UPLOAD_DIR.resolve()):
-            raise ValueError("Invalid storage path destination.")
-
-        stored_path.write_bytes(content)
+        get_storage_service().save_upload(file_id, extension, content)
 
         return file_id, content
 
@@ -110,23 +97,8 @@ class FileIngestionService:
         extracted_text: str,
     ) -> Path:
         clean_file_id = FileIngestionService.validate_file_id(file_id)
-
-        FileIngestionService.EXTRACTED_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        extracted_path = (
-            FileIngestionService.EXTRACTED_DIR
-            / f"{clean_file_id}.txt"
-        ).resolve()
-
-        if not extracted_path.is_relative_to(FileIngestionService.EXTRACTED_DIR.resolve()):
-            raise ValueError("Invalid storage path destination.")
-
-        extracted_path.write_text(
+        saved_path = get_storage_service().save_extracted_text(
+            clean_file_id,
             extracted_text,
-            encoding="utf-8",
         )
-
-        return extracted_path
+        return Path(saved_path)

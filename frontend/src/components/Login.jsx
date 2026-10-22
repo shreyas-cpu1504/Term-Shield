@@ -14,7 +14,7 @@ import {
   KeyRound,
 } from "lucide-react";
 
-import { loginUser, getAuthProviders, getOAuthLoginUrl } from "../api/authApi";
+import { loginUser, getAuthProviders, getOAuthLoginUrl, forgotPassword } from "../api/authApi";
 import TermShieldLogo from "./TermShieldLogo";
 import "./Login.css";
 
@@ -58,7 +58,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister, initialNotic
     setIsForgotPassword(false);
   };
 
-  const handleForgotSubmit = (event) => {
+  const handleForgotSubmit = async (event) => {
     event.preventDefault();
     const normalized = (forgotEmail || email).trim();
 
@@ -75,11 +75,18 @@ export default function Login({ onLoginSuccess, onSwitchToRegister, initialNotic
     setForgotLoading(true);
     setForgotError("");
 
-    // Simulate sending reset email while preserving security privacy
-    setTimeout(() => {
-      setForgotLoading(false);
+    try {
+      await forgotPassword(normalized);
       setForgotSuccess(true);
-    }, 500);
+    } catch (err) {
+      const msg =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        "Unable to send reset instructions. Please check your network connection and try again.";
+      setForgotError(msg);
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   const handleSubmit = async (event) => {

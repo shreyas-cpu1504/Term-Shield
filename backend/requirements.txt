@@ -36,3 +36,5 @@ torch==2.13.0
 pytest==9.1.1
 aiosqlite==0.22.1
 pytest-asyncio==1.4.0
+boto3==1.43.117
+asyncpg==0.32.0

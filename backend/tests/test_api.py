@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.file_ingestion_service import FileIngestionService
+from app.services.clause_storage_service import ClauseStorageService
 
 
 @pytest.fixture()
@@ -263,7 +264,7 @@ def test_contract_analysis_pipeline(client):
         # Clean up stored clauses
         # ----------------------------------------------------------
         clauses_path = (
-            Path("storage/clauses")
+            ClauseStorageService.CLAUSES_DIR
             / f"{file_id}.json"
         )
 
@@ -347,6 +348,6 @@ def test_user_cannot_access_another_users_contract(client, other_client):
                 for path in directory.glob(f"{file_id}.*"):
                     path.unlink()
 
-        clauses_path = Path("storage/clauses") / f"{file_id}.json"
+        clauses_path = ClauseStorageService.CLAUSES_DIR / f"{file_id}.json"
         if clauses_path.exists():
             clauses_path.unlink()

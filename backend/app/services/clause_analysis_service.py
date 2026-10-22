@@ -141,6 +141,8 @@ class ClauseAnalysis:
     # User-facing interpretation
     # ------------------------------------------------------------------
     user_impact: Optional[str] = None
+    why_important: list[str] = field(default_factory=list)
+    potential_concerns: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
 
 
@@ -1042,6 +1044,8 @@ class ClauseAnalysisService:
         )
 
         result.user_impact = cls._generate_user_impact(result)
+        result.why_important = cls._generate_why_important(result, text)
+        result.potential_concerns = cls._generate_potential_concerns(result, text)
         result.recommendations = cls._generate_recommendations(result)
 
         return result
@@ -2638,6 +2642,143 @@ class ClauseAnalysisService:
             )
 
         return cls._unique(recommendations)
+
+    @classmethod
+    def _generate_why_important(
+        cls,
+        result: ClauseAnalysis,
+        text: str,
+    ) -> list[str]:
+        points = []
+        clause_type = (result.clause_type or "").upper()
+        lower_text = text.lower()
+
+        if clause_type == "TERMINATION":
+            points.append("This defines how the agreement can be terminated.")
+            if result.deadlines or result.notice_terms:
+                notice_str = result.deadlines[0] if result.deadlines else "A specified notice period"
+                points.append(f"{notice_str} applies to ordinary termination.")
+            elif re.search(r"\bimmediate(?:ly)?|without prior notice\b", lower_text):
+                points.append("Allows immediate contract termination under breach conditions.")
+        elif clause_type == "PAYMENT":
+            points.append("Establishes binding financial commitments, billing frequency, and payment schedules.")
+            if result.deadlines:
+                points.append(f"Requires payments to be settled within {result.deadlines[0]}.")
+            if result.penalties or result.fees or re.search(r"\blate\s+fee|interest\b", lower_text):
+                points.append("Delayed payments may incur interest charges, late fees, or service suspension.")
+        elif clause_type in {"DATA_PROTECTION", "PRIVACY"}:
+            points.append("Governs how personal, customer, or confidential data is collected, handled, and safeguarded.")
+            if re.search(r"\bthird\s*part|subprocessor\b", lower_text):
+                points.append("Regulates sharing and transmission of protected data to third-party providers.")
+        elif clause_type in {"LIABILITY", "INDEMNITY"}:
+            points.append("Allocates legal risk and defines monetary recovery limits between the parties.")
+            if re.search(r"\bindemnif|hold harmless\b", lower_text):
+                points.append("Requires one party to defend and financially protect the other against third-party claims.")
+            if re.search(r"\bconsequential|indirect|incidental\b", lower_text):
+                points.append("Excludes liability for indirect, punitive, or consequential losses.")
+        elif clause_type == "CONFIDENTIALITY":
+            points.append("Restricts disclosure of proprietary business information and trade secrets.")
+            if re.search(r"\bsurvive\b", lower_text):
+                points.append("Confidentiality duties survive the termination of this agreement.")
+        elif clause_type in {"RENEWAL", "DURATION"}:
+            points.append("Controls how the agreement is extended and may auto-renew unless cancelled.")
+
+        if result.risk_reasons:
+            for r in result.risk_reasons:
+                if r and r not in points:
+                    points.append(r)
+
+        if not points:
+            if len(text.strip()) < 25:
+                points.append("Specific operational impacts cannot be determined from the available text.")
+            else:
+                title = result.title or "Contract clause"
+                points.append(f"Defines binding operational requirements and legal duties for {title.lower()}.")
+
+        return cls._unique(points)[:4]
+
+    @classmethod
+    def _generate_potential_concerns(
+        cls,
+        result: ClauseAnalysis,
+        text: str,
+    ) -> list[str]:
+        concerns = []
+        raw = (text or "").strip()
+        if not raw:
+            return ["No substantive clause text was available to evaluate potential concerns."]
+
+        # 1. Blank or missing values (e.g. __________, [_____], [insert ...], [TBD], $___)
+        blank_pattern = r"(?:_{2,}|\[\s*_{2,}\s*\]|\[\s*\]|\[\s*(?:insert|insert\s+here|tbd|to\s+be\s+determined|date|amount|name|party)\b[^\]]*\]|\$__+)"
+        if re.search(blank_pattern, raw, re.IGNORECASE):
+            concerns.append("A value appears to be missing from the available text. Verify the complete original document.")
+
+        # 2. Incomplete sentences or truncated text
+        is_truncated = (
+            bool(re.search(r"(?:\.{3,}|…)\s*$", raw))
+            or bool(re.search(r"[,;:\-\–]\s*$", raw))
+            or bool(re.search(r"\b(?:if|unless|provided\s+that|subject\s+to|and|or|with\s+respect\s+to|such\s+as)\s*$", raw, re.IGNORECASE))
+        )
+        if is_truncated:
+            concerns.append("The clause appears to be truncated or incomplete at the end. Check the complete source contract.")
+
+        # 3. References to missing exhibits, schedules, annexures, appendices
+        exhibit_match = re.search(
+            r"\b(Exhibit\s+[A-Z0-9]+(?:\s*:\s*[^,.;]+)?|Schedule\s+[A-Z0-9]+|Annexure\s+[A-Z0-9]+|Appendix\s+[A-Z0-9]+|Attachment\s+[A-Z0-9]+|Addendum\s+[A-Z0-9]+|Order\s+Form|Statement\s+of\s+Work|\bSOW\b)",
+            raw,
+            re.IGNORECASE,
+        )
+        if exhibit_match:
+            doc_ref = exhibit_match.group(1).strip()
+            if re.search(r"Exhibit\s+A(?:\s*:\s*Scope\s+of\s+Services)?", doc_ref, re.IGNORECASE):
+                concerns.append("The clause depends on Exhibit A for the scope of services, but the referenced content is not present in the available contract text.")
+                concerns.append("Verify Exhibit A before accepting the agreement.")
+            else:
+                concerns.append(f"The clause refers to {doc_ref}, which is not detailed in the available text. Verify the referenced document before accepting.")
+
+        # Reference to other internal sections: "subject to Section X", "as defined in Section Y"
+        section_ref_match = re.search(
+            r"\b(?:subject\s+to|as\s+(?:set\s+forth|defined|described)\s+in)\s+(Section\s+[0-9A-Za-z.-]+|Article\s+[0-9A-Za-z.-]+|Clause\s+[0-9A-Za-z.-]+)",
+            raw,
+            re.IGNORECASE,
+        )
+        if section_ref_match:
+            concerns.append(f"The clause is {section_ref_match.group(0).lower()}. Verify {section_ref_match.group(1)} to understand how it modifies or limits this provision.")
+
+        # 4. Undefined / ambiguous wording
+        if re.search(r"\breasonable\s+efforts\b", raw, re.IGNORECASE):
+            concerns.append('The term "reasonable efforts" is not specifically defined in the available text. Check whether the agreement defines this standard elsewhere.')
+        elif re.search(r"\bbest\s+efforts\b", raw, re.IGNORECASE):
+            concerns.append('The term "best efforts" establishes a heightened standard that is not specifically defined in the available text. Clarify the expected scope.')
+        elif re.search(r"\bcommercially\s+reasonable(?:\s+efforts)?\b", raw, re.IGNORECASE):
+            concerns.append('The standard "commercially reasonable" is subjective and not explicitly quantified in this clause. Check whether benchmark criteria exist.')
+
+        if re.search(r"\b(?:at\s+its\s+sole\s+discretion|in\s+its\s+sole\s+discretion|sole\s+opinion)\b", raw, re.IGNORECASE):
+            concerns.append('The phrase "at its sole discretion" gives one party unilateral control over this decision. This should be verified or clarified.')
+
+        if re.search(r"\bmaterial\s+breach\b", raw, re.IGNORECASE) and not re.search(r"\bdefined\s+as\b", raw, re.IGNORECASE):
+            concerns.append('The term "material breach" is not defined within this clause. Check whether the agreement defines what constitutes a material breach.')
+
+        if re.search(r"\b(?:prompt\s+notice|promptly\s+notify)\b", raw, re.IGNORECASE) and not re.search(r"\b\d+\s*(?:business\s+days?|calendar\s+days?|days?|hours?)\b", raw, re.IGNORECASE):
+            concerns.append('The clause requires "prompt notice" but does not define an exact number of business days or hours. Clarify the acceptable notice timeframe.')
+
+        # 5. Unclear renewal or payment conditions
+        clause_type = (result.clause_type or "").upper()
+        if clause_type in {"RENEWAL", "DURATION"} or re.search(r"\bauto(?:matic(?:ally)?)?\s*renew", raw, re.IGNORECASE):
+            if not re.search(r"\b\d+\s*(?:business\s+days?|calendar\s+days?|days?|months?|weeks?)\b", raw, re.IGNORECASE):
+                concerns.append("The clause provides for automatic renewal, but the specific cancellation window or deadline is not specified in the available text.")
+
+        if clause_type == "PAYMENT" and re.search(r"\b(?:additional\s+fees|expenses\s+shall\s+be\s+reimbursed|costs?\s+incurred|penalt(?:y|ies))\b", raw, re.IGNORECASE):
+            if not (result.monetary_terms or result.percentages or re.search(r"\$\s*\d+|\b\d+\s*(?:dollars|usd|inr|eur|%|percent)\b", raw, re.IGNORECASE)):
+                concerns.append("The clause references additional fees or expenses, but does not specify exact amounts or calculation limits in the available text.")
+
+        unique_concerns = cls._unique(concerns)[:4]
+
+        # 6. Complete clause with no concern
+        if not unique_concerns:
+            return ["No specific ambiguity or missing information was identified in the available clause text."]
+
+        return unique_concerns
 
     # ================================================================
     # Batch analysis

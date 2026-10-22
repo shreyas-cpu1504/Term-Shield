@@ -50,6 +50,11 @@ class QAHistory(Base):
         nullable=False,
         default=0.0,
     )
+    language: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        default="English",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

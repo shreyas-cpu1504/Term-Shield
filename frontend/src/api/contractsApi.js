@@ -1,8 +1,16 @@
-import apiClient from "./client";
+import apiClient from "./client.js";
 
-export async function getContracts() {
+export async function getContracts(options = {}) {
   const response = await apiClient.get(
-    "/contracts"
+    "/contracts",
+    {
+      headers: {
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        ...(options?.headers || {}),
+      },
+      params: options?.params,
+    }
   );
 
   return response.data;

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract import Contract
 from app.models.user import User
+from app.services.storage_service import get_storage_service
 
 
 def _validate_file_id(file_id: str) -> str:
@@ -37,11 +38,8 @@ def _uploaded_contract_glob(file_id: str) -> list[Path]:
 
 def contract_exists(file_id: str) -> bool:
     """True if a contract with the given file_id has any data stored."""
-    return (
-        _extracted_path(file_id).exists()
-        or _clauses_path(file_id).exists()
-        or bool(_uploaded_contract_glob(file_id))
-    )
+    return get_storage_service().has_contract_data(file_id)
+
 
 
 async def require_owned_contract(

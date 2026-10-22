@@ -49,7 +49,7 @@ class GeminiService:
         if env_val and env_val.strip():
             return env_val.strip()
 
-        return "gemini-flash-lite-latest"
+        return "gemini-flash-latest"
 
     @classmethod
     def generate(cls, prompt: str) -> str:
@@ -63,9 +63,17 @@ class GeminiService:
             },
         )
 
-        models_to_try = [primary_model]
-        if primary_model != "gemini-flash-lite-latest":
-            models_to_try.append("gemini-flash-lite-latest")
+        candidates = [
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            primary_model,
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
+        ]
+        models_to_try = []
+        for m in candidates:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
 
         last_error = None
         for model in models_to_try:
@@ -79,8 +87,9 @@ class GeminiService:
                     return text.strip()
             except Exception as e:
                 last_error = e
-                # Only retry with fallback model if it was a rate-limit/quota error
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                # Retry with next model if rate-limited, quota exceeded, deprecated, or server unavailable
+                err_str = str(e)
+                if any(x in err_str for x in ["429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE", "high demand", "no longer available"]):
                     continue
                 raise e
 

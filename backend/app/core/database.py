@@ -13,7 +13,16 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-db_url = settings.database_url
+def normalize_database_url(url: str) -> str:
+    """Normalize standard PostgreSQL connection schemes to SQLAlchemy's asyncpg dialect."""
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+db_url = normalize_database_url(settings.database_url)
 
 # Ensure local storage directory exists for SQLite database files
 if "sqlite" in db_url:
@@ -23,13 +32,21 @@ if "sqlite" in db_url:
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
 connect_args = {}
+engine_kwargs = {
+    "echo": settings.debug,
+}
+
 if "sqlite" in db_url:
     connect_args["check_same_thread"] = False
+else:
+    # Serverless / Neon pooler resilience settings
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 300
 
 engine = create_async_engine(
     db_url,
-    echo=settings.debug,
     connect_args=connect_args,
+    **engine_kwargs,
 )
 
 # Enforce foreign key constraints for SQLite
@@ -74,6 +91,16 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate_profile_photo(sync_conn):
+            from sqlalchemy import inspect, text
+            inspector = inspect(sync_conn)
+            if "users" in inspector.get_table_names():
+                cols = [c["name"] for c in inspector.get_columns("users")]
+                if "profile_photo" not in cols:
+                    sync_conn.execute(text("ALTER TABLE users ADD COLUMN profile_photo TEXT"))
+
+        await conn.run_sync(_migrate_profile_photo)
 
 
 async def close_db() -> None:

@@ -1,32 +1,49 @@
-import apiClient from "./client";
+import apiClient from "./client.js";
+
+export function validateContractId(fileId) {
+  if (
+    fileId === undefined ||
+    fileId === null ||
+    fileId === "undefined" ||
+    fileId === "null" ||
+    (typeof fileId === "string" && fileId.trim() === "")
+  ) {
+    throw new Error("Invalid contract ID: Contract ID must not be null, undefined, or empty.");
+  }
+  return String(fileId).trim();
+}
 
 export async function getContractAnalysis(fileId) {
+  const validId = validateContractId(fileId);
   const response = await apiClient.get(
-    `/clauses/${fileId}/analysis`
+    `/clauses/${encodeURIComponent(validId)}/analysis`
   );
 
   return response.data;
 }
 
 export async function getContractSummary(fileId) {
+  const validId = validateContractId(fileId);
   const response = await apiClient.get(
-    `/clauses/${fileId}/summary`
+    `/clauses/${encodeURIComponent(validId)}/summary`
   );
 
   return response.data;
 }
 
 export async function getContractClauses(fileId) {
+  const validId = validateContractId(fileId);
   const response = await apiClient.get(
-    `/clauses/${fileId}`
+    `/clauses/${encodeURIComponent(validId)}`
   );
 
   return response.data;
 }
 
 export async function getContractRelationships(fileId) {
+  const validId = validateContractId(fileId);
   const response = await apiClient.get(
-    `/clauses/${fileId}/relationships`
+    `/clauses/${encodeURIComponent(validId)}/relationships`
   );
 
   return response.data;

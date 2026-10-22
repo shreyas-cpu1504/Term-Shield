@@ -11,12 +11,12 @@ from app.core.ownership import require_owned_contract
 from app.models.qa_history import QAHistory
 from app.models.user import User
 from app.schemas.qa import (
+    ClearChatResponse,
     QAHistoryItemResponse,
     QuestionRequest,
     QuestionResponse,
 )
-from app.services.qa_service import QAService
-
+from app.services.qa import QAService
 from app.api.v1.clauses import _load_clauses
 
 
@@ -36,14 +36,14 @@ async def ask_question(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> QuestionResponse:
-
     contract = await require_owned_contract(db, current_user, file_id)
     if contract is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Extracted document not found.",
         )
-    # Handle basic conversational acknowledgments locally without cluttering QA history
+
+    # 1. Handle fast conversational greetings/gratitude locally without saving to DB
     conv_response = QAService.get_conversational_response(request.question)
     if conv_response:
         return QuestionResponse(
@@ -56,7 +56,7 @@ async def ask_question(
 
     clauses = await _load_clauses(file_id, db)
 
-    # Fetch most recent QA exchange for conversational context (e.g. language/format follow-up instructions)
+    # 2. Fetch recent conversation history (last 10 turns) for multi-turn context
     history_res = await db.execute(
         select(QAHistory)
         .where(
@@ -64,47 +64,30 @@ async def ask_question(
             QAHistory.user_id == current_user.id,
         )
         .order_by(QAHistory.created_at.desc())
-        .limit(1)
+        .limit(10)
     )
-    last_qa = history_res.scalars().first()
+    # Reverse to chronological order (oldest -> newest)
+    recent_history = list(reversed(history_res.scalars().all()))
 
-    previous_question = last_qa.question if last_qa else None
-    previous_answer = last_qa.answer if last_qa else None
-    previous_evidence = None
-    if last_qa and last_qa.evidence_json:
-        try:
-            ev_list = json.loads(last_qa.evidence_json)
-            from app.services.retrieval_service import RetrievedClause
-            previous_evidence = [
-                RetrievedClause(
-                    clause_id=e.get("clause_id", ""),
-                    clause_number=e.get("clause_number"),
-                    title=e.get("title"),
-                    text=e.get("text", ""),
-                    score=e.get("relevance_score", 0.9),
-                )
-                for e in ev_list
-            ]
-        except Exception:
-            previous_evidence = None
-
+    # 3. Call unified QA Service
     response = QAService.answer(
         file_id=file_id,
         question=request.question,
         clauses=clauses,
         contract_name=contract.filename,
         contract_summary=contract.summary_json,
-        previous_question=previous_question,
-        previous_answer=previous_answer,
-        previous_evidence=previous_evidence,
+        conversation_history=recent_history,
+        language=request.language,
     )
 
+    # 4. Save exchange to QAHistory
     qa_record = QAHistory(
         id=str(uuid.uuid4()),
         contract_id=file_id,
         user_id=current_user.id,
         question=request.question,
         answer=response.answer,
+        language=response.language,
         evidence_json=(
             json.dumps([e.model_dump() for e in response.evidence])
             if response.evidence
@@ -127,7 +110,6 @@ async def get_qa_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[QAHistoryItemResponse]:
-
     contract = await require_owned_contract(db, current_user, file_id)
     if contract is None:
         raise HTTPException(
@@ -146,3 +128,27 @@ async def get_qa_history(
 
     records = result.scalars().all()
     return list(records)
+
+
+@router.delete(
+    "/{file_id}/history",
+    response_model=ClearChatResponse,
+)
+async def clear_qa_history(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ClearChatResponse:
+    contract = await require_owned_contract(db, current_user, file_id)
+    if contract is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Extracted document not found.",
+        )
+
+    cleared_count = await QAService.clear_history(db, file_id, current_user.id)
+    return ClearChatResponse(
+        success=True,
+        cleared_records=cleared_count,
+        message="Conversation history cleared successfully.",
+    )

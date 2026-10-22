@@ -364,7 +364,24 @@ class RetrievalService:
         ):
             return "cancellation"
 
+        # Major risk / risks
+        if (
+            re.search(r"\b(?:major|biggest|main|highest|key|primary|critical|most)\s+risks?\b", q)
+            or re.search(r"\bwhat\s+(?:is|are)\s+(?:the\s+)?(?:major\s+)?risks?\b", q)
+            or re.search(r"\b(?:unlimited\s+liability|high\s+risk|most\s+risk|carry\s+the\s+most\s+risk|carries\s+the\s+most\s+risk)\b", q)
+            or "what is the major risk" in q
+            or "what is the risk" in q
+            or "what are the risks" in q
+            or "main risks" in q
+            or "major risk" in q
+            or "biggest risk" in q
+            or "main risk" in q
+            or "highest risk" in q
+        ):
+            return "major_risk"
+
         # Most important clause (singular)
+
         if (
             re.search(r"\bmost\s+important\s+clause\b", q)
             or re.search(r"\bmost\s+critical\s+clause\b", q)
@@ -1030,6 +1047,51 @@ class RetrievalService:
                     return 0.40
 
                 return 0.0
+
+            # ----------------------------------------------------
+            # MAJOR RISK / KEY RISKS
+            # ----------------------------------------------------
+
+            if intent == "major_risk":
+
+                c_type = (
+                    getattr(clause, "clause_type", None)
+                    or getattr(clause, "type", None)
+                    or ""
+                ).upper()
+                c_category = (getattr(clause, "category", None) or "").lower()
+                title_lower = (clause.title or "").lower()
+                text_lower = (clause.text or "").lower()
+
+                # Unlimited liability is the highest priority major risk
+                if "unlimited liability" in text_lower or "unlimited liability" in title_lower or ("unlimited" in text_lower and "liability" in text_lower):
+                    return 0.98
+
+                if (
+                    c_type in {"LIABILITY", "INDEMNITY"}
+                    or c_category in {"liability", "indemnity"}
+                    or "liabilit" in title_lower
+                    or "indemn" in title_lower
+                    or "liability" in text_lower
+                ):
+                    return 0.92
+
+                if any(k in text_lower or k in title_lower for k in ("termination fee", "cancellation charge", "penalty", "penalties", "liquidated damages", "interest charge", "non-refundable")):
+                    return 0.88
+
+                if any(k in text_lower for k in ("breach", "material breach", "default", "damages", "losses")):
+                    return 0.82
+
+                if "renew" in text_lower or "renew" in title_lower:
+                    return 0.78
+
+                if any(k in text_lower or k in title_lower for k in ("confidential", "privacy")):
+                    return 0.72
+
+                if overlap:
+                    return min(0.50 + len(overlap) * 0.1, 0.70)
+
+                return 0.40 if len(text_lower.strip()) > 30 else 0.0
 
             # ----------------------------------------------------
             # MOST IMPORTANT CLAUSE (SINGULAR)

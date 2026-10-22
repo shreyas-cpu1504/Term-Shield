@@ -2,13 +2,14 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.contract import Contract
+    from app.models.password_reset_token import PasswordResetToken
     from app.models.qa_history import QAHistory
 
 
@@ -33,6 +34,10 @@ class User(Base):
     )
     full_name: Mapped[Optional[str]] = mapped_column(
         String(255),
+        nullable=True,
+    )
+    profile_photo: Mapped[Optional[str]] = mapped_column(
+        Text,
         nullable=True,
     )
     is_active: Mapped[bool] = mapped_column(
@@ -69,6 +74,11 @@ class User(Base):
     )
     qa_history: Mapped[list["QAHistory"]] = relationship(
         "QAHistory",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        "PasswordResetToken",
         back_populates="user",
         cascade="all, delete-orphan",
     )

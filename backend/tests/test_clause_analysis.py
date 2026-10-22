@@ -214,3 +214,58 @@ def test_multiple_financial_terms():
     assert result.taxes
     assert result.currencies
     assert result.percentages
+
+
+def test_why_important_across_clause_types():
+    # 1. Termination clause
+    term_res = analyze("Either party may terminate this agreement by giving 30 days written notice.")
+    assert term_res.why_important
+    assert any("terminate" in item.lower() for item in term_res.why_important)
+
+    # 2. Payment clause
+    pay_res = analyze("The Customer shall pay 10,000 USD within 30 days. Late payment incurs 1.5% interest.")
+    assert pay_res.why_important
+    assert any("payment" in item.lower() or "financial" in item.lower() for item in pay_res.why_important)
+
+    # 3. Privacy clause
+    priv_res = analyze("The processor shall protect personal data and notify the customer of breaches.")
+    assert priv_res.why_important
+    assert any("data" in item.lower() or "privacy" in item.lower() for item in priv_res.why_important)
+
+    # 4. Liability clause
+    liab_res = analyze("The Company's aggregate liability shall not exceed the fees paid. Consequential damages are excluded.")
+    assert liab_res.why_important
+    assert any("liability" in item.lower() or "risk" in item.lower() for item in liab_res.why_important)
+
+
+def test_potential_concerns_detection():
+    # 1. Missing Exhibit/reference
+    exhibit_res = analyze("The Contractor shall deliver the deliverables as specified in Exhibit A: Scope of Services.")
+    assert exhibit_res.potential_concerns
+    assert any("exhibit a" in c.lower() for c in exhibit_res.potential_concerns)
+    assert any("verify exhibit a" in c.lower() for c in exhibit_res.potential_concerns)
+
+    # 2. Blank or missing value
+    blank_res = analyze("The Customer shall pay __________ to Provider on or before the due date.")
+    assert blank_res.potential_concerns
+    assert any("value appears to be missing" in c.lower() for c in blank_res.potential_concerns)
+
+    # 3. Ambiguous wording ("reasonable efforts")
+    ambig_res = analyze("The Contractor shall use reasonable efforts to complete the integration.")
+    assert ambig_res.potential_concerns
+    assert any('"reasonable efforts"' in c.lower() for c in ambig_res.potential_concerns)
+
+    # 4. Truncated clause
+    trunc_res = analyze("Either party may terminate this agreement immediately if...")
+    assert trunc_res.potential_concerns
+    assert any("truncated or incomplete" in c.lower() for c in trunc_res.potential_concerns)
+
+    # 5. Complete clause with no concern
+    clean_res = analyze("Either party may terminate the agreement by giving 30 days' written notice to the other party via email.")
+    assert clean_res.potential_concerns == ["No specific ambiguity or missing information was identified in the available clause text."]
+
+    # 6. Ensure no fabricated concerns or alarmist words like 'illegal' or 'dangerous'
+    for c in clean_res.potential_concerns:
+        assert "illegal" not in c.lower()
+        assert "dangerous" not in c.lower()
+        assert "unfair" not in c.lower()

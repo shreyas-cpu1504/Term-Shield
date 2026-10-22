@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 25
 
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-flash-lite-latest"
+    gemini_model: str = "gemini-flash-latest"
 
     database_url: str = "sqlite+aiosqlite:///storage/term_shield.db"
 
@@ -25,11 +25,22 @@ class Settings(BaseSettings):
 
     # Email verification / password reset
     frontend_url: str = "http://localhost:5173"
+    resend_api_key: str | None = None
+    email_from: str = "Term Shield <onboarding@resend.dev>"
+    password_reset_token_expire_minutes: int = 30
 
     # Google OAuth
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_redirect_uri: str | None = None
+
+    # Storage Provider (defaults to local filesystem)
+    storage_provider: str = "local"
+    r2_account_id: str | None = None
+    r2_access_key_id: str | None = None
+    r2_secret_access_key: str | None = None
+    r2_bucket_name: str | None = None
+    r2_endpoint_url: str | None = None
 
 
     model_config = SettingsConfigDict(

@@ -80,6 +80,8 @@ class ClauseAnalysis(BaseModel):
     risk_score: int = 0
     risk_reasons: list[str] = Field(default_factory=list)
     user_impact: str | None = None
+    why_important: list[str] = Field(default_factory=list)
+    potential_concerns: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
 
     # Analysis metadata

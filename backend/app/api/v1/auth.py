@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -9,20 +10,26 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
+    MessageResponse,
     OAuthExchangeRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
+    UpdateProfileRequest,
     UserResponse,
 )
+from app.services.email_service import send_password_reset_email
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -237,6 +244,26 @@ async def get_me(
     return UserResponse.model_validate(current_user)
 
 
+@router.patch(
+    "/profile",
+    response_model=UserResponse,
+)
+@router.put(
+    "/profile",
+    response_model=UserResponse,
+)
+async def update_profile(
+    request: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Update display name and profile photo for the authenticated user."""
+    current_user.full_name = request.full_name
+    current_user.profile_photo = request.profile_photo
+    await db.flush()
+    return UserResponse.model_validate(current_user)
+
+
 @router.get("/providers")
 async def get_auth_providers():
     """Return configured OAuth providers."""
@@ -343,6 +370,7 @@ async def google_callback(
         user = User(
             email=email.lower(),
             full_name=name.strip(),
+            profile_photo=user_info.get("picture"),
             hashed_password=None,
             is_active=True,
             is_verified=True,
@@ -354,7 +382,9 @@ async def google_callback(
             return RedirectResponse(f"{frontend_url}/?error=User+account+is+inactive")
         if not user.is_verified:
             user.is_verified = True
-            await db.flush()
+        if not user.profile_photo and user_info.get("picture"):
+            user.profile_photo = user_info.get("picture")
+        await db.flush()
 
     exchange_code = await create_oauth_exchange_code(user.id)
     return RedirectResponse(f"{frontend_url}/?oauth_code={exchange_code}")
@@ -405,6 +435,129 @@ async def exchange_oauth_code(
         access_token=access_token,
         token_type="bearer",
         user=UserResponse.model_validate(user),
+    )
+
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Request a password reset link for an email address."""
+    settings = get_settings()
+    generic_response = MessageResponse(
+        message="If an account exists for this email, password reset instructions have been sent."
+    )
+
+    email = request.email.lower().strip()
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        return generic_response
+
+    # Generate cryptographically secure random token (URL safe)
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    now_utc = datetime.now(timezone.utc)
+    expires_at = now_utc + timedelta(minutes=settings.password_reset_token_expire_minutes)
+
+    # Invalidate any existing unused reset tokens for this user
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now_utc)
+    )
+
+    # Store hashed token
+    reset_record = PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(reset_record)
+    await db.flush()
+
+    # Dispatch email via email service
+    await send_password_reset_email(to_email=user.email, reset_token=raw_token)
+
+    return generic_response
+
+
+@router.post(
+    "/reset-password",
+    response_model=MessageResponse,
+)
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Reset a user's password using a valid, unused reset token."""
+    raw_token = request.token.strip()
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or missing password reset token.",
+        )
+
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
+    )
+    token_record = result.scalar_one_or_none()
+
+    if token_record is None or token_record.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or already used password reset link. Please request a new one.",
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    token_expires = token_record.expires_at
+    if token_expires.tzinfo is None:
+        token_expires = token_expires.replace(tzinfo=timezone.utc)
+
+    if token_expires < now_utc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset link has expired. Please request a new one.",
+        )
+
+    user_result = await db.execute(
+        select(User).where(User.id == token_record.user_id)
+    )
+    user = user_result.scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset link.",
+        )
+
+    # Update user's password
+    user.hashed_password = hash_password(request.new_password)
+
+    # Invalidate all unused tokens for this user, including this one
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now_utc)
+    )
+    await db.flush()
+
+    return MessageResponse(
+        message="Password reset successfully. You can now sign in with your new password."
     )
 
 
