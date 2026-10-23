@@ -1,0 +1,9 @@
+SERVICE AGREEMENT
+
+Company A agrees to provide software development services to Company B.
+
+Company B shall pay Company A within 30 days of receiving an invoice.
+
+Either party may terminate this agreement by providing 30 days written notice.
+
+Confidential information must not be disclosed to third parties.

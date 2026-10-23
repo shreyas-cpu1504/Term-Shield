@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.bak
+*.backup*
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
+
+# Uploaded/generated files
+uploads/
+outputs/
+
+# OS
+.DS_Store
+Thumbs.db
+# Contract uploads and extracted documents
+backend/storage/
+
+# Runtime contract storage
+storage/
+
+# Secret files
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+credentials.json
+token.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend dependencies and builds
+node_modules/
+dist/
