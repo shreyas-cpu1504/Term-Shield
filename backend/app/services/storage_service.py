@@ -753,7 +753,6 @@ class SupabaseStorageService(R2StorageService):
             )
         return self._client
 
-
 _default_storage_service: BaseStorageService | None = None
 _cached_storage_provider: str | None = None
 _is_service_overridden: bool = False

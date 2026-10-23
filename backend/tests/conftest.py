@@ -16,6 +16,7 @@ os.environ.setdefault(
     "JWT_SECRET_KEY",
     "test-secret-key-for-tests-which-is-32-bytes-long",
 )
+os.environ["STORAGE_PROVIDER"] = "local"
 
 # 2. Configure isolated temporary filesystem storage before importing application modules
 _TEST_STORAGE_DIR = Path(tempfile.gettempdir()) / f"term_shield_test_storage_{uuid.uuid4().hex[:8]}"
@@ -65,7 +66,6 @@ def reset_test_storage():
     FileIngestionService.UPLOAD_DIR = _TEST_STORAGE_DIR / "uploads"
     FileIngestionService.EXTRACTED_DIR = _TEST_STORAGE_DIR / "extracted"
     ClauseStorageService.CLAUSES_DIR = _TEST_STORAGE_DIR / "clauses"
-
 
 @pytest.fixture(scope="session", autouse=True)
 def initialize_test_database():

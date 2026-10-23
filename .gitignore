@@ -7,26 +7,8 @@ __pycache__/
 venv/
 env/
 
-# Environment variables
+# Environment variables & secrets
 .env
-
-# VS Code
-.vscode/
-
-# Uploaded/generated files
-uploads/
-outputs/
-
-# OS
-.DS_Store
-Thumbs.db
-# Contract uploads and extracted documents
-backend/storage/
-
-# Runtime contract storage
-storage/
-
-# Secret files
 .env.*
 !.env.example
 **/.env
@@ -34,6 +16,15 @@ storage/
 !**/.env.example
 credentials.json
 token.json
+
+# VS Code
+.vscode/
+
+# Uploaded/generated files & runtime storage
+uploads/
+outputs/
+backend/storage/
+storage/
 
 # Local databases
 *.db
@@ -43,3 +34,7 @@ token.json
 # Frontend dependencies and builds
 node_modules/
 dist/
+
+# OS
+.DS_Store
+Thumbs.db

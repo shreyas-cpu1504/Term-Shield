@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     supabase_s3_bucket: str = "term-shield-contracts"
     supabase_s3_region: str = "ap-northeast-2"
 
-
     model_config = SettingsConfigDict(
         env_file=(_BASE_DIR / ".env", ".env"),
         env_file_encoding="utf-8",
