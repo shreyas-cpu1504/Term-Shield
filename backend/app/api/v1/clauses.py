@@ -39,6 +39,9 @@ from app.services.contract_summary_service import (
 from app.services.file_ingestion_service import (
     FileIngestionService,
 )
+from app.services.storage_service import (
+    get_storage_service,
+)
 
 
 router = APIRouter(
@@ -304,7 +307,7 @@ async def _load_clauses(file_id: str, db: AsyncSession | None = None) -> list[Cl
 
             return clauses
 
-    # 2. Fallback to extracted text / ClauseStorageService
+    # 2. Fallback to clause storage or extracted text via storage abstraction
     try:
         clean_file_id = FileIngestionService.validate_file_id(file_id)
     except ValueError:
@@ -313,28 +316,36 @@ async def _load_clauses(file_id: str, db: AsyncSession | None = None) -> list[Cl
             detail="Extracted document not found.",
         )
 
-    extracted_path = (
-        FileIngestionService.EXTRACTED_DIR
-        / f"{clean_file_id}.txt"
-    ).resolve()
-
-    if (
-        not extracted_path.is_relative_to(FileIngestionService.EXTRACTED_DIR.resolve())
-        or not extracted_path.exists()
-    ):
-        raise HTTPException(
-            status_code=404,
-            detail="Extracted document not found.",
-        )
+    storage = get_storage_service()
 
     clauses = ClauseStorageService.load_clauses(
         clean_file_id
     )
 
     if not clauses:
-        text = extracted_path.read_text(
-            encoding="utf-8",
-        )
+        # Load extracted text from storage (Supabase, R2, or local)
+        text = storage.read_extracted_text(clean_file_id)
+
+        # Fallback to local filesystem if storage provider didn't return text (e.g. migration / local dev)
+        if not text:
+            extracted_path = (
+                FileIngestionService.EXTRACTED_DIR
+                / f"{clean_file_id}.txt"
+            ).resolve()
+            if (
+                extracted_path.is_relative_to(FileIngestionService.EXTRACTED_DIR.resolve())
+                and extracted_path.is_file()
+            ):
+                try:
+                    text = extracted_path.read_text(encoding="utf-8")
+                except OSError:
+                    text = None
+
+        if not text:
+            raise HTTPException(
+                status_code=404,
+                detail="Extracted document not found.",
+            )
 
         clauses = ClauseSegmentationService.segment(
             text

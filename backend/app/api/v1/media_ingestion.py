@@ -56,7 +56,7 @@ async def ingest_audio(
             content=content,
         )
 
-        FileIngestionService.save_extracted_text(
+        saved_extracted_path = FileIngestionService.save_extracted_text(
             file_id=file_id,
             extracted_text=transcript,
         )
@@ -71,10 +71,7 @@ async def ingest_audio(
                 file_type=extension[1:],
                 size_bytes=len(content),
                 character_count=len(transcript),
-                extracted_text_path=str(
-                    FileIngestionService.EXTRACTED_DIR
-                    / f"{file_id}.txt"
-                ),
+                extracted_text_path=str(saved_extracted_path),
             )
         )
         await db.flush()
@@ -132,7 +129,7 @@ async def ingest_video(
             content=content,
         )
 
-        FileIngestionService.save_extracted_text(
+        saved_extracted_path = FileIngestionService.save_extracted_text(
             file_id=file_id,
             extracted_text=transcript,
         )
@@ -147,10 +144,7 @@ async def ingest_video(
                 file_type=extension[1:],
                 size_bytes=len(content),
                 character_count=len(transcript),
-                extracted_text_path=str(
-                    FileIngestionService.EXTRACTED_DIR
-                    / f"{file_id}.txt"
-                ),
+                extracted_text_path=str(saved_extracted_path),
             )
         )
         await db.flush()

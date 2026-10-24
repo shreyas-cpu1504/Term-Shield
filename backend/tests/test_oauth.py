@@ -112,3 +112,24 @@ async def test_oauth_exchange_code_lifecycle_and_single_use():
         # 5. Invalid / Fake code: MUST FAIL
         res3 = await client.post("/api/v1/auth/oauth/exchange", json={"code": "completely_fake_code"})
         assert res3.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_google_login_resolves_reverse_proxy_forwarded_headers(monkeypatch):
+    """Verify that when behind a reverse proxy (like Render), redirect_uri uses forwarded host & proto."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "google_client_id", "mock-google-client-id")
+    monkeypatch.setattr(settings, "google_client_secret", "mock-google-client-secret")
+    monkeypatch.setattr(settings, "google_redirect_uri", None)
+
+    transport = ASGITransport(app=app)
+    headers = {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "term-shield-vw3i.onrender.com",
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/auth/google/login", headers=headers, follow_redirects=False)
+        assert response.status_code == 307
+        location = response.headers.get("location")
+        assert "redirect_uri=https%3A%2F%2Fterm-shield-vw3i.onrender.com%2Fapi%2Fv1%2Fauth%2Fgoogle%2Fcallback" in location
+

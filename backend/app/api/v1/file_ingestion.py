@@ -60,7 +60,7 @@ async def ingest_file(
             detail="No readable text could be extracted from the file.",
         )
 
-    FileIngestionService.save_extracted_text(
+    saved_extracted_path = FileIngestionService.save_extracted_text(
         file_id=file_id,
         extracted_text=extracted_text,
     )
@@ -77,10 +77,7 @@ async def ingest_file(
             file_type=extension[1:],
             size_bytes=len(content),
             character_count=len(extracted_text),
-            extracted_text_path=str(
-                FileIngestionService.EXTRACTED_DIR
-                / f"{file_id}.txt"
-            ),
+            extracted_text_path=str(saved_extracted_path),
         )
     )
     await db.flush()
@@ -148,7 +145,7 @@ async def ingest_url(
 
     stored_path.write_bytes(content)
 
-    FileIngestionService.save_extracted_text(
+    saved_extracted_path = FileIngestionService.save_extracted_text(
         file_id=file_id,
         extracted_text=extracted_text,
     )
@@ -163,10 +160,7 @@ async def ingest_url(
             file_type=extension[1:],
             size_bytes=len(content),
             character_count=len(extracted_text),
-            extracted_text_path=str(
-                FileIngestionService.EXTRACTED_DIR
-                / f"{file_id}.txt"
-            ),
+            extracted_text_path=str(saved_extracted_path),
         )
     )
     await db.flush()

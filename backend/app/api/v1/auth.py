@@ -7,7 +7,7 @@ from urllib.parse import quote_plus, urlencode
 
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, update
@@ -276,8 +276,19 @@ async def get_auth_providers():
     }
 
 
+def resolve_google_redirect_uri(request: Request, configured_uri: str | None) -> str:
+    """Resolve Google OAuth redirect URI using configured setting or request headers."""
+    if configured_uri:
+        return configured_uri
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host"))
+    if forwarded_host:
+        return f"{forwarded_proto}://{forwarded_host}/api/v1/auth/google/callback"
+    return "http://127.0.0.1:8000/api/v1/auth/google/callback"
+
+
 @router.get("/google/login")
-async def google_login():
+async def google_login(request: Request):
     """Redirect to Google's OAuth 2.0 authorization endpoint."""
     settings = get_settings()
     if not settings.google_client_id or not settings.google_client_secret:
@@ -286,7 +297,7 @@ async def google_login():
             detail="Google OAuth is not configured on the server. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the environment.",
         )
 
-    redirect_uri = settings.google_redirect_uri or "http://127.0.0.1:8000/api/v1/auth/google/callback"
+    redirect_uri = resolve_google_redirect_uri(request, settings.google_redirect_uri)
     state = generate_oauth_state("google")
     params = {
         "client_id": settings.google_client_id,
@@ -303,6 +314,7 @@ async def google_login():
 
 @router.get("/google/callback")
 async def google_callback(
+    request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -318,7 +330,7 @@ async def google_callback(
     if not code or not state or not verify_oauth_state(state, "google"):
         return RedirectResponse(f"{frontend_url}/?error=Invalid+or+expired+OAuth+state")
 
-    redirect_uri = settings.google_redirect_uri or "http://127.0.0.1:8000/api/v1/auth/google/callback"
+    redirect_uri = resolve_google_redirect_uri(request, settings.google_redirect_uri)
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:

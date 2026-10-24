@@ -4,8 +4,10 @@ import io
 import json
 import pytest
 from botocore.exceptions import ClientError
+from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
+from app.services.file_ingestion_service import FileIngestionService
 from app.services.storage_service import (
     BaseStorageService,
     LocalStorageService,
@@ -256,3 +258,66 @@ def test_supabase_has_contract_data(supabase_service):
 
     supabase_service.save_extracted_text(file_id, "some extracted text")
     assert supabase_service.has_contract_data(file_id)
+
+
+# --- 7. Production Bug Regression Test ---
+
+def test_supabase_storage_end_to_end_analysis_regression(client: TestClient, supabase_service, mock_s3):
+    """
+    Regression test for the production bug where STORAGE_PROVIDER=supabase caused
+    GET /api/v1/clauses/{id}/analysis to fail with 404 "Extracted document not found."
+    because _load_clauses was checking local disk instead of using get_storage_service().
+    """
+    # 1. Activate Supabase storage service globally
+    set_storage_service(supabase_service)
+
+    contract_content = (
+        b"CONFIDENTIALITY AGREEMENT\n\n"
+        b"1. Confidential Information.\n"
+        b"The receiving party shall hold all confidential information in strict confidence.\n\n"
+        b"2. Termination.\n"
+        b"Either party may terminate this agreement upon 30 days prior written notice.\n"
+    )
+
+    # 2. Ingest document via POST /api/v1/ingestion/file
+    files = {"file": ("supabase_contract.txt", io.BytesIO(contract_content), "text/plain")}
+    resp = client.post("/api/v1/ingestion/file", files=files)
+    assert resp.status_code == 200, resp.text
+    file_id = resp.json()["file_id"]
+    assert file_id
+
+    # 3. Verify files were saved to Supabase (MockS3) and NOT to local disk
+    assert f"extracted/{file_id}.txt" in mock_s3.objects
+    local_extracted = FileIngestionService.EXTRACTED_DIR / f"{file_id}.txt"
+    assert not local_extracted.exists()
+
+    # 4. Request clause extraction: GET /api/v1/clauses/{file_id}
+    clause_resp = client.get(f"/api/v1/clauses/{file_id}")
+    assert clause_resp.status_code == 200, clause_resp.text
+    clause_data = clause_resp.json()
+    assert clause_data["clause_count"] >= 2
+
+    # 5. Request clause analysis: GET /api/v1/clauses/{file_id}/analysis
+    # THIS PREVIOUSLY RETURNED 404 "Extracted document not found."
+    analysis_resp = client.get(f"/api/v1/clauses/{file_id}/analysis")
+    assert analysis_resp.status_code == 200, f"Failed with {analysis_resp.status_code}: {analysis_resp.text}"
+    analysis_data = analysis_resp.json()
+    assert analysis_data["analysis_count"] >= 2
+    assert "analyses" in analysis_data
+    assert len(analysis_data["analyses"]) >= 2
+
+    # 6. Request contract summary & relationships
+    summary_resp = client.get(f"/api/v1/clauses/{file_id}/summary")
+    assert summary_resp.status_code == 200
+    summary_data = summary_resp.json()
+    assert summary_data["total_clauses"] >= 2
+    assert "overall_risk" in summary_data
+
+    rel_resp = client.get(f"/api/v1/clauses/{file_id}/relationships")
+    assert rel_resp.status_code == 200
+
+    # 7. Cleanup via DELETE /api/v1/contracts/{file_id}
+    del_resp = client.delete(f"/api/v1/contracts/{file_id}")
+    assert del_resp.status_code == 200
+    assert not supabase_service.has_contract_data(file_id)
+
