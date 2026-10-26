@@ -23,8 +23,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Eagerly discover and configure Tesseract binary and paths on startup
-    OCRService.is_available()
+    # Log Tesseract OCR startup diagnostics (safe telemetry without secrets)
+    OCRService.log_startup_diagnostics()
     try:
         yield
     finally:

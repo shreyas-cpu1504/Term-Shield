@@ -255,3 +255,35 @@ def test_extract_gracefully_handles_tesseract_not_found(monkeypatch):
         assert False, "Expected ValueError when Tesseract is missing for PDF"
     except ValueError as exc:
         assert "tesseract is not installed" in str(exc).lower()
+
+
+def test_ocr_startup_diagnostics_contains_required_keys_and_no_secrets():
+    diag = OCRService.get_diagnostics()
+
+    # Required diagnostic fields
+    assert "configured_cmd" in diag
+    assert "shutil_which" in diag
+    assert "binary_exists" in diag
+    assert "binary_executable" in diag
+    assert "tesseract_version" in diag
+    assert "tessdata_prefix" in diag
+    assert "is_available" in diag
+
+    # Security check: must NEVER contain any credentials or secrets
+    sensitive_keywords = ["key", "secret", "token", "password", "auth", "credential"]
+    for k, v in diag.items():
+        for word in sensitive_keywords:
+            assert word not in k.lower(), f"Sensitive key detected in diagnostics: {k}"
+            if isinstance(v, str):
+                assert "sk-" not in v, "Secret API key format leaked in diagnostic value"
+
+
+def test_ocr_log_startup_diagnostics_executes_safely(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        OCRService.log_startup_diagnostics()
+
+    assert "OCR Startup Diagnostics" in caplog.text
+    assert "shutil.which('tesseract')" in caplog.text
+    assert "Tesseract binary:" in caplog.text

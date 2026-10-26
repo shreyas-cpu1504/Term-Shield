@@ -4,6 +4,7 @@ import os
 import shutil
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import pymupdf
 import pytesseract
@@ -25,95 +26,40 @@ class OCRService:
     MAX_PDF_OCR_PAGES: int = 30
     _configured_cmd: str | None = None
     _is_configured: bool = False
+    _last_error: str | None = None
 
     @classmethod
-    def _configure_tesseract(cls) -> bool:
-        """
-        Locate and configure the Tesseract executable and language data.
-        Supports standard system PATH, Render .apt vendor directories,
-        custom environment settings, and standard OS installation paths.
-        """
-        if cls._is_configured and cls._configured_cmd:
-            return True
-
-        settings = get_settings()
-
-        # 1. Explicit setting or environment variable
-        configured_path = settings.tesseract_cmd or os.environ.get("TESSERACT_CMD")
-        if configured_path and Path(configured_path).is_file():
-            cls._apply_tesseract_cmd(str(configured_path))
-            cls._configure_tessdata(settings.tessdata_prefix, Path(configured_path))
-            cls._is_configured = True
-            return True
-
-        # 2. Check system PATH
-        path_binary = shutil.which("tesseract")
-        if path_binary:
-            cls._apply_tesseract_cmd(path_binary)
-            cls._configure_tessdata(settings.tessdata_prefix, Path(path_binary))
-            cls._is_configured = True
-            return True
-
-        # 3. Known Linux & Render deployment paths (.apt, /usr/bin, etc.)
-        candidate_paths = [
-            Path("/usr/bin/tesseract"),
-            Path("/usr/local/bin/tesseract"),
-            Path("/opt/render/project/src/.apt/usr/bin/tesseract"),
-            Path("/opt/render/project/src/backend/.apt/usr/bin/tesseract"),
-            Path.cwd() / ".apt" / "usr" / "bin" / "tesseract",
-            Path(__file__).resolve().parents[2] / ".apt" / "usr" / "bin" / "tesseract",
-            Path(__file__).resolve().parents[3] / ".apt" / "usr" / "bin" / "tesseract",
-            # Standard Windows locations for local development
-            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+    def _find_apt_roots(cls) -> list[Path]:
+        """Discover possible .apt vendor directories across cwd and module trees."""
+        candidates = [
+            Path.cwd() / ".apt",
+            Path.cwd() / "backend" / ".apt",
+            Path(__file__).resolve().parents[2] / ".apt",
+            Path(__file__).resolve().parents[3] / ".apt",
+            Path("/opt/render/project/src/.apt"),
+            Path("/opt/render/project/src/backend/.apt"),
         ]
-
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            candidate_paths.append(
-                Path(local_app_data) / "Programs" / "Tesseract-OCR" / "tesseract.exe"
-            )
-
-        for candidate in candidate_paths:
-            if candidate.is_file():
-                cls._apply_tesseract_cmd(str(candidate))
-                cls._configure_tessdata(settings.tessdata_prefix, candidate)
-                cls._is_configured = True
-                return True
-
-        return False
+        found = []
+        for candidate in candidates:
+            if candidate.is_dir() and candidate not in found:
+                found.append(candidate)
+        return found
 
     @classmethod
-    def _apply_tesseract_cmd(cls, cmd_path: str) -> None:
-        cls._configured_cmd = cmd_path
-        pytesseract.pytesseract.tesseract_cmd = cmd_path
-        logger.info("Configured Tesseract binary at: %s", cmd_path)
-
-    @classmethod
-    def _configure_tessdata(
-        cls,
-        custom_prefix: str | None = None,
-        binary_path: Path | None = None,
-    ) -> None:
-        """Ensure TESSDATA_PREFIX and library search paths are configured."""
-        if custom_prefix and Path(custom_prefix).is_dir():
-            os.environ["TESSDATA_PREFIX"] = str(custom_prefix)
-            return
-
-        if "TESSDATA_PREFIX" in os.environ and Path(os.environ["TESSDATA_PREFIX"]).is_dir():
-            return
-
-        # If binary is inside a .apt directory on Render, add library paths and tessdata
-        if binary_path and ".apt" in binary_path.parts:
-            apt_idx = binary_path.parts.index(".apt")
-            apt_root = Path(*binary_path.parts[: apt_idx + 1])
-
+    def _configure_environment_paths(cls) -> None:
+        """
+        Proactively inject local .apt binary and library paths into PATH,
+        LD_LIBRARY_PATH, and TESSDATA_PREFIX before probing Tesseract.
+        """
+        for apt_root in cls._find_apt_roots():
+            # 1. Update PATH with .apt/usr/bin
             bin_dir = apt_root / "usr" / "bin"
             if bin_dir.is_dir():
                 current_path = os.environ.get("PATH", "")
                 if str(bin_dir) not in current_path:
                     os.environ["PATH"] = f"{bin_dir}:{current_path}"
 
+            # 2. Update LD_LIBRARY_PATH with all vendor library locations
             lib_dirs = [
                 apt_root / "usr" / "lib" / "x86_64-linux-gnu",
                 apt_root / "usr" / "lib",
@@ -123,32 +69,149 @@ class OCRService:
             current_ld = os.environ.get("LD_LIBRARY_PATH", "")
             for lib_dir in lib_dirs:
                 if lib_dir.is_dir() and str(lib_dir) not in current_ld:
-                    current_ld = (
-                        f"{lib_dir}:{current_ld}" if current_ld else str(lib_dir)
-                    )
+                    current_ld = f"{lib_dir}:{current_ld}" if current_ld else str(lib_dir)
             if current_ld:
                 os.environ["LD_LIBRARY_PATH"] = current_ld
 
+            # 3. Discover tessdata directory containing eng.traineddata
             for td_candidate in [
-                apt_root / "usr" / "share" / "tesseract-ocr" / "5" / "tessdata",
                 apt_root / "usr" / "share" / "tesseract-ocr" / "4.00" / "tessdata",
+                apt_root / "usr" / "share" / "tesseract-ocr" / "5" / "tessdata",
                 apt_root / "usr" / "share" / "tessdata",
             ]:
-                if td_candidate.is_dir():
+                if td_candidate.is_dir() and (td_candidate / "eng.traineddata").is_file():
                     os.environ["TESSDATA_PREFIX"] = str(td_candidate)
-                    return
+                    break
+
+    @classmethod
+    def _configure_tesseract(cls) -> bool:
+        """
+        Locate and configure the Tesseract executable and language data.
+        Validates executable functionality via version check.
+        """
+        if cls._is_configured and cls._configured_cmd:
+            return True
+
+        # Pre-seed environment paths from any .apt directory
+        cls._configure_environment_paths()
+
+        settings = get_settings()
+
+        # Build candidate binary paths to probe
+        candidate_paths: list[Path] = []
+
+        # 1. Explicit setting or environment variable
+        configured_path = settings.tesseract_cmd or os.environ.get("TESSERACT_CMD")
+        if configured_path:
+            candidate_paths.append(Path(configured_path))
+
+        # 2. Local vendor binaries from .apt
+        for apt_root in cls._find_apt_roots():
+            candidate_paths.append(apt_root / "usr" / "bin" / "tesseract")
+
+        # 3. System PATH binary
+        path_binary = shutil.which("tesseract")
+        if path_binary:
+            candidate_paths.append(Path(path_binary))
+
+        # 4. Standard Linux & Render deployment paths
+        candidate_paths.extend([
+            Path("/usr/bin/tesseract"),
+            Path("/usr/local/bin/tesseract"),
+            # Common Windows locations for local development
+            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+        ])
+
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            candidate_paths.append(
+                Path(local_app_data) / "Programs" / "Tesseract-OCR" / "tesseract.exe"
+            )
+
+        for candidate in candidate_paths:
+            if candidate.is_file():
+                try:
+                    pytesseract.pytesseract.tesseract_cmd = str(candidate)
+                    ver = pytesseract.get_tesseract_version()
+                    cls._configured_cmd = str(candidate)
+                    cls._is_configured = True
+                    cls._last_error = None
+                    logger.info("Configured functional Tesseract binary at: %s (v%s)", candidate, ver)
+                    return True
+                except Exception as exc:
+                    cls._last_error = f"Candidate {candidate} failed validation: {exc}"
+                    logger.debug(cls._last_error)
+
+        cls._is_configured = False
+        return False
+
+    @classmethod
+    def get_diagnostics(cls) -> dict[str, Any]:
+        """
+        Collect startup diagnostics for Tesseract and environment.
+        Never logs or exposes any secrets or sensitive credentials.
+        """
+        cls._configure_environment_paths()
+        cls._configure_tesseract()
+
+        cmd = cls._configured_cmd or pytesseract.pytesseract.tesseract_cmd
+        which_path = shutil.which("tesseract")
+
+        binary_path = Path(cmd) if cmd else None
+        binary_exists = binary_path.is_file() if binary_path else False
+        binary_executable = (
+            os.access(binary_path, os.X_OK) if binary_path and binary_exists else False
+        )
+
+        tessdata_prefix = os.environ.get("TESSDATA_PREFIX")
+        eng_traineddata_found = False
+        if tessdata_prefix and Path(tessdata_prefix).is_dir():
+            eng_traineddata_found = (Path(tessdata_prefix) / "eng.traineddata").is_file()
+
+        ver_str = None
+        error_msg = cls._last_error
+        is_avail = False
+
+        if binary_exists:
+            try:
+                ver_str = str(pytesseract.get_tesseract_version())
+                is_avail = True
+                error_msg = None
+            except Exception as exc:
+                error_msg = str(exc)
+                is_avail = False
+
+        return {
+            "configured_cmd": cmd,
+            "shutil_which": which_path,
+            "binary_exists": binary_exists,
+            "binary_executable": binary_executable,
+            "tessdata_prefix": tessdata_prefix,
+            "eng_traineddata_found": eng_traineddata_found,
+            "tesseract_version": ver_str,
+            "is_available": is_avail,
+            "error": error_msg,
+        }
+
+    @classmethod
+    def log_startup_diagnostics(cls) -> None:
+        """Log safe, non-sensitive Tesseract diagnostics during server boot."""
+        diag = cls.get_diagnostics()
+        logger.info("=== [OCR Startup Diagnostics] ===")
+        logger.info("Tesseract binary: %s (exists=%s, executable=%s)", diag["configured_cmd"], diag["binary_exists"], diag["binary_executable"])
+        logger.info("shutil.which('tesseract'): %s", diag["shutil_which"])
+        logger.info("TESSDATA_PREFIX: %s (eng.traineddata=%s)", diag["tessdata_prefix"], diag["eng_traineddata_found"])
+        logger.info("tesseract --version: %s", diag["tesseract_version"])
+        logger.info("OCR Engine Status: %s", "READY" if diag["is_available"] else f"UNAVAILABLE ({diag['error']})")
+        logger.info("=================================")
 
     @classmethod
     def is_available(cls) -> bool:
         """Check if Tesseract binary is available and functional."""
-        if not cls._configure_tesseract():
-            return False
-        try:
-            pytesseract.get_tesseract_version()
-            return True
-        except Exception as exc:
-            logger.warning("Tesseract availability check failed: %s", exc)
-            return False
+        diag = cls.get_diagnostics()
+        return diag["is_available"]
+
 
     @staticmethod
     def _normalize_text(text: str) -> str:

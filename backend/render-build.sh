@@ -4,15 +4,15 @@
 # 
 # Installs Tesseract OCR engine, language data, and shared C libraries into a
 # local .apt directory, then installs Python requirements. Compatible with both:
-#  - Render Root Directory set to "." (repository root)
-#  - Render Root Directory set to "backend"
+#  - Render Root Directory set to "backend" (cwd: /opt/render/project/src/backend)
+#  - Render Root Directory set to "." (cwd: /opt/render/project/src)
 # ==============================================================================
 set -e
 
-echo "=== [1/3] Detecting project root and requirements.txt ==="
+echo "=== [1/3] Detecting project root and installing Python dependencies ==="
 
 CURRENT_DIR="$(pwd)"
-echo "Current working directory: $CURRENT_DIR"
+echo "Current build directory: $CURRENT_DIR"
 
 if [ -f "requirements.txt" ]; then
     REQ_FILE="requirements.txt"
@@ -21,91 +21,37 @@ elif [ -f "backend/requirements.txt" ]; then
     REQ_FILE="backend/requirements.txt"
     TARGET_DIR="$CURRENT_DIR/backend"
 else
-    echo "ERROR: requirements.txt not found in current directory or backend/!"
+    echo "ERROR: requirements.txt not found!"
     exit 1
 fi
 
-echo "Using requirements file: $REQ_FILE"
-echo "Target application directory: $TARGET_DIR"
+echo "Requirements file: $REQ_FILE"
+echo "Target directory: $TARGET_DIR"
 
-# ==============================================================================
-# 2. Install Python Dependencies
-# ==============================================================================
-echo "=== [2/3] Installing Python dependencies ==="
 pip install --upgrade pip
 pip install -r "$REQ_FILE"
 
-# ==============================================================================
-# 3. Check and Install Tesseract OCR System Dependencies
-# ==============================================================================
-echo "=== [3/3] Configuring Tesseract OCR system dependency ==="
+echo "=== [2/3] Installing Tesseract OCR system dependencies ==="
 
-if command -v tesseract >/dev/null 2>&1; then
-    echo "System Tesseract binary detected at: $(which tesseract)"
-    tesseract --version
+if [ -f "scripts/install_tesseract_render.py" ]; then
+    python scripts/install_tesseract_render.py "$TARGET_DIR"
+elif [ -f "backend/scripts/install_tesseract_render.py" ]; then
+    python backend/scripts/install_tesseract_render.py "$TARGET_DIR"
 else
-    echo "Tesseract not found in system PATH. Installing via non-root package extraction..."
-
-    APT_DIR="$TARGET_DIR/.apt"
-    mkdir -p "$APT_DIR"
-
-    # Also link if current directory differs from target directory
-    if [ "$CURRENT_DIR" != "$TARGET_DIR" ]; then
-        ln -sfn "$APT_DIR" "$CURRENT_DIR/.apt" 2>/dev/null || true
-    fi
-
-    TEMP_DIR="$(mktemp -d)"
-    cd "$TEMP_DIR"
-
-    echo "Updating package index and downloading packages..."
-    apt-get update -o dir::cache="$TEMP_DIR" || true
-
-    PACKAGES=(
-        tesseract-ocr
-        tesseract-ocr-eng
-        tesseract-ocr-osd
-        libtesseract5
-        libtesseract4
-        liblept5
-        libgomp1
-        libdeflate0
-        libwebp7
-        libopenjp2-7
-        libgif7
-        libtiff5
-        libjbig0
-        libpng16-16
-        libjpeg8
-        libjpeg-turbo8
-    )
-
-    for PKG in "${PACKAGES[@]}"; do
-        apt-get download "$PKG" 2>/dev/null || true
-    done
-
-    echo "Extracting debian packages into $APT_DIR..."
-    COUNT=0
-    for deb in *.deb; do
-        if [ -f "$deb" ]; then
-            dpkg -x "$deb" "$APT_DIR"
-            COUNT=$((COUNT + 1))
-        fi
-    done
-
-    cd "$CURRENT_DIR"
-    rm -rf "$TEMP_DIR"
-
-    echo "Extracted $COUNT package(s) into $APT_DIR"
+    echo "Warning: install_tesseract_render.py not found, checking existing binaries..."
 fi
 
-# Verify the tesseract binary location
-if [ -f "$TARGET_DIR/.apt/usr/bin/tesseract" ]; then
-    echo "Tesseract binary successfully installed to: $TARGET_DIR/.apt/usr/bin/tesseract"
-    chmod +x "$TARGET_DIR/.apt/usr/bin/tesseract" 2>/dev/null || true
-elif command -v tesseract >/dev/null 2>&1; then
-    echo "Tesseract ready at $(which tesseract)"
-else
-    echo "Note: Tesseract extraction completed; will be resolved dynamically by OCRService."
-fi
+echo "=== [3/3] Verifying Tesseract runtime and startup diagnostics ==="
 
-echo "=== TermShield Build Finished Successfully ==="
+python -c "
+import sys
+from app.services.ocr_service import OCRService
+OCRService.log_startup_diagnostics()
+diag = OCRService.get_diagnostics()
+if sys.platform == 'linux' and not diag['is_available']:
+    print('FATAL: Tesseract is not available after build!')
+    sys.exit(1)
+print('Tesseract verification complete. Status is_available:', diag['is_available'])
+"
+
+echo "=== TermShield Render Build Completed Successfully ==="
