@@ -267,6 +267,7 @@ def test_ocr_startup_diagnostics_contains_required_keys_and_no_secrets():
     assert "binary_executable" in diag
     assert "tesseract_version" in diag
     assert "tessdata_prefix" in diag
+    assert "installed_languages" in diag
     assert "is_available" in diag
 
     # Security check: must NEVER contain any credentials or secrets
@@ -287,3 +288,11 @@ def test_ocr_log_startup_diagnostics_executes_safely(caplog):
     assert "OCR Startup Diagnostics" in caplog.text
     assert "shutil.which('tesseract')" in caplog.text
     assert "Tesseract binary:" in caplog.text
+    assert "Installed Languages:" in caplog.text
+
+
+def test_ocr_detects_installed_languages():
+    diag = OCRService.get_diagnostics()
+    if diag["is_available"]:
+        assert isinstance(diag["installed_languages"], list)
+        assert "eng" in diag["installed_languages"]

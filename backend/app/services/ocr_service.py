@@ -165,9 +165,8 @@ class OCRService:
         )
 
         tessdata_prefix = os.environ.get("TESSDATA_PREFIX")
+        installed_languages: list[str] = []
         eng_traineddata_found = False
-        if tessdata_prefix and Path(tessdata_prefix).is_dir():
-            eng_traineddata_found = (Path(tessdata_prefix) / "eng.traineddata").is_file()
 
         ver_str = None
         error_msg = cls._last_error
@@ -182,6 +181,33 @@ class OCRService:
                 error_msg = str(exc)
                 is_avail = False
 
+            if is_avail:
+                try:
+                    installed_languages = pytesseract.get_languages()
+                    eng_traineddata_found = "eng" in installed_languages
+                except Exception:
+                    pass
+
+        # Check filesystem fallback for eng.traineddata
+        if not eng_traineddata_found:
+            tessdata_candidates = []
+            if tessdata_prefix:
+                tessdata_candidates.append(Path(tessdata_prefix))
+            tessdata_candidates.extend([
+                Path("/usr/share/tesseract-ocr/5/tessdata"),
+                Path("/usr/share/tesseract-ocr/4.00/tessdata"),
+                Path("/usr/share/tessdata"),
+                Path("/usr/local/share/tessdata"),
+                Path(r"C:\Program Files\Tesseract-OCR\tessdata"),
+                Path(r"C:\Program Files (x86)\Tesseract-OCR\tessdata"),
+            ])
+            for td in tessdata_candidates:
+                if td.is_dir() and (td / "eng.traineddata").is_file():
+                    eng_traineddata_found = True
+                    if not tessdata_prefix:
+                        tessdata_prefix = str(td)
+                    break
+
         return {
             "configured_cmd": cmd,
             "shutil_which": which_path,
@@ -189,6 +215,7 @@ class OCRService:
             "binary_executable": binary_executable,
             "tessdata_prefix": tessdata_prefix,
             "eng_traineddata_found": eng_traineddata_found,
+            "installed_languages": installed_languages,
             "tesseract_version": ver_str,
             "is_available": is_avail,
             "error": error_msg,
@@ -202,6 +229,7 @@ class OCRService:
         logger.info("Tesseract binary: %s (exists=%s, executable=%s)", diag["configured_cmd"], diag["binary_exists"], diag["binary_executable"])
         logger.info("shutil.which('tesseract'): %s", diag["shutil_which"])
         logger.info("TESSDATA_PREFIX: %s (eng.traineddata=%s)", diag["tessdata_prefix"], diag["eng_traineddata_found"])
+        logger.info("Installed Languages: %s", diag["installed_languages"])
         logger.info("tesseract --version: %s", diag["tesseract_version"])
         logger.info("OCR Engine Status: %s", "READY" if diag["is_available"] else f"UNAVAILABLE ({diag['error']})")
         logger.info("=================================")
@@ -211,6 +239,7 @@ class OCRService:
         """Check if Tesseract binary is available and functional."""
         diag = cls.get_diagnostics()
         return diag["is_available"]
+
 
 
     @staticmethod
