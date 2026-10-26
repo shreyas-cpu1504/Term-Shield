@@ -208,3 +208,50 @@ def test_extract_multi_page_scanned_pdf():
     assert "5000" in normalized
     assert "renew" in normalized
     assert "12 months" in normalized
+
+
+def test_ocr_availability_check():
+    assert OCRService.is_available() is True
+
+
+def test_prepare_image_downsamples_large_images():
+    large_image = Image.new("RGB", (3200, 2400), "white")
+    processed = OCRService._prepare_image_for_ocr(large_image)
+
+    # Must be converted to grayscale for 66% lower memory
+    assert processed.mode == "L"
+    # Max dimension must be bounded to MAX_IMAGE_DIMENSION
+    assert max(processed.size) <= OCRService.MAX_IMAGE_DIMENSION
+    assert processed.size == (2000, 1500)
+
+
+def test_extract_from_corrupted_image():
+    corrupted_bytes = b"\x89PNG\r\n\x1a\nCorruptedDataNotAnImage"
+    try:
+        OCRService.extract_from_image(corrupted_bytes)
+        assert False, "Expected ValueError for corrupted image"
+    except ValueError as exc:
+        assert "corrupted" in str(exc).lower() or "unsupported" in str(exc).lower()
+
+
+def test_extract_gracefully_handles_tesseract_not_found(monkeypatch):
+    import pytesseract
+
+    def mock_image_to_string(*args, **kwargs):
+        raise pytesseract.pytesseract.TesseractNotFoundError()
+
+    monkeypatch.setattr(pytesseract, "image_to_string", mock_image_to_string)
+
+    content = _create_test_image("Test contract clause.")
+    try:
+        OCRService.extract_from_image(content)
+        assert False, "Expected ValueError when Tesseract is missing"
+    except ValueError as exc:
+        assert "tesseract is not installed" in str(exc).lower()
+
+    pdf_content = _create_scanned_pdf(["Test scanned contract."])
+    try:
+        OCRService.extract_from_pdf(pdf_content)
+        assert False, "Expected ValueError when Tesseract is missing for PDF"
+    except ValueError as exc:
+        assert "tesseract is not installed" in str(exc).lower()

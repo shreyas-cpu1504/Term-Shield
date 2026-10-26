@@ -1,7 +1,21 @@
 import axios from "axios";
 
+export const resolveApiBaseUrl = (rawUrl) => {
+  const candidate = (
+    rawUrl ||
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
+    "http://127.0.0.1:8000/api/v1"
+  ).trim();
+
+  const stripped = candidate.replace(/\/+$/, "");
+  if (stripped.endsWith("/api/v1")) {
+    return stripped;
+  }
+  return `${stripped}/api/v1`;
+};
+
 const apiClient = axios.create({
-  baseURL: (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "http://127.0.0.1:8000/api/v1",
+  baseURL: resolveApiBaseUrl(),
   timeout: 120000,
 });
 

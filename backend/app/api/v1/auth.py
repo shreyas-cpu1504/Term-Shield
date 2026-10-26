@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -154,11 +155,12 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Register a new user."""
+    clean_email = request.email.lower().strip()
+    clean_name = request.full_name.strip()
 
     result = await db.execute(
-        select(User).where(User.email == request.email.lower())
+        select(User).where(User.email == clean_email)
     )
-
     existing_user = result.scalar_one_or_none()
 
     if existing_user:
@@ -167,16 +169,39 @@ async def register(
             detail="Email is already registered",
         )
 
+    hashed_pw = await asyncio.to_thread(hash_password, request.password)
+
     user = User(
-        email=request.email.lower(),
-        full_name=request.full_name.strip(),
-        hashed_password=hash_password(request.password),
+        email=clean_email,
+        full_name=clean_name,
+        hashed_password=hashed_pw,
         is_active=True,
         is_verified=False,
     )
 
     db.add(user)
-    await db.flush()
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email is already registered",
+        )
+    except Exception as exc:
+        await db.rollback()
+        # Fallback check if user was inserted concurrently
+        check_user = await db.execute(select(User).where(User.email == clean_email))
+        if check_user.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email is already registered",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to complete registration. Please try again.",
+        ) from exc
 
     access_token = create_access_token(user.id)
 
@@ -196,11 +221,11 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Authenticate a user and return a JWT."""
+    clean_email = request.email.lower().strip()
 
     result = await db.execute(
-        select(User).where(User.email == request.email.lower())
+        select(User).where(User.email == clean_email)
     )
-
     user = result.scalar_one_or_none()
 
     if user is None or not user.hashed_password:
@@ -210,7 +235,8 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if not verify_password(request.password, user.hashed_password):
+    is_valid = await asyncio.to_thread(verify_password, request.password, user.hashed_password)
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

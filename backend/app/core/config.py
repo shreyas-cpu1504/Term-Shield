@@ -18,6 +18,23 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-flash-latest"
 
     database_url: str = "sqlite+aiosqlite:///storage/term_shield.db"
+    neon_database_url: str | None = None
+
+    # CORS & Frontend Origins
+    cors_origins: str | None = None
+
+    # OCR & Tesseract Configuration
+    tesseract_cmd: str | None = None
+    tessdata_prefix: str | None = None
+
+    @property
+    def effective_database_url(self) -> str:
+        """Resolve database URL. If neon_database_url is set and database_url is default local sqlite, use neon."""
+        default_sqlite = "sqlite+aiosqlite:///storage/term_shield.db"
+        if self.neon_database_url and self.neon_database_url.strip():
+            if not self.database_url or self.database_url == default_sqlite:
+                return self.neon_database_url.strip()
+        return self.database_url or default_sqlite
 
     # Authentication
     jwt_secret_key: str | None = None

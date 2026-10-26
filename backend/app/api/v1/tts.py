@@ -10,7 +10,7 @@ router = APIRouter(prefix="/tts", tags=["Text-to-Speech"])
 
 # In-memory LRU cache for synthesized audio chunks: sha256 -> bytes
 _TTS_CACHE: dict[str, bytes] = {}
-_TTS_CACHE_MAX = 500
+_TTS_CACHE_MAX = 50
 
 # Language code normalization for Indic & English TTS
 LANG_CODE_MAP = {

@@ -1,8 +1,6 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-import whisper
-
 
 class AudioTranscriptionService:
     """Transcribe audio files using OpenAI Whisper."""
@@ -20,8 +18,12 @@ class AudioTranscriptionService:
 
     @classmethod
     def _get_model(cls):
-        """Load Whisper model lazily so application startup stays fast."""
+        """Load Whisper model lazily so application startup stays fast and low-memory."""
         if cls._model is None:
+            try:
+                import whisper
+            except ImportError as err:
+                raise RuntimeError(f"Whisper library is not installed: {err}") from err
             cls._model = whisper.load_model("base")
 
         return cls._model

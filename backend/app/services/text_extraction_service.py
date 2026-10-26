@@ -184,53 +184,53 @@ class TextExtractionService:
                 stream=content,
                 filetype="pdf",
             )
+            try:
+                pages = []
 
-            pages = []
+                for page in document:
 
-            for page in document:
-
-                blocks = page.get_text(
-                    "blocks",
-                    sort=True,
-                )
-
-                page_parts = []
-
-                for block in blocks:
-
-                    if len(block) < 5:
-                        continue
-
-                    block_text = block[4]
-
-                    if not block_text:
-                        continue
-
-                    block_text = (
-                        block_text
-                        .replace("\x00", "")
-                        .strip()
+                    blocks = page.get_text(
+                        "blocks",
+                        sort=True,
                     )
 
-                    if block_text:
-                        page_parts.append(
+                    page_parts = []
+
+                    for block in blocks:
+
+                        if len(block) < 5:
+                            continue
+
+                        block_text = block[4]
+
+                        if not block_text:
+                            continue
+
+                        block_text = (
                             block_text
+                            .replace("\x00", "")
+                            .strip()
                         )
 
-                if page_parts:
-                    pages.append(
-                        "\n".join(page_parts)
-                    )
+                        if block_text:
+                            page_parts.append(
+                                block_text
+                            )
 
-            document.close()
+                    if page_parts:
+                        pages.append(
+                            "\n".join(page_parts)
+                        )
 
-            extracted_text = (
-                "\n\n".join(pages)
-                .strip()
-            )
+                extracted_text = (
+                    "\n\n".join(pages)
+                    .strip()
+                )
 
-            if extracted_text:
-                return extracted_text
+                if extracted_text:
+                    return extracted_text
+            finally:
+                document.close()
 
         except Exception:
             # Continue to pypdf fallback.

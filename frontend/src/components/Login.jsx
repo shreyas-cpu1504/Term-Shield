@@ -91,6 +91,7 @@ export default function Login({ onLoginSuccess, onSwitchToRegister, initialNotic
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (loading) return;
 
     const normalizedEmail = email.trim();
 
@@ -120,12 +121,52 @@ export default function Login({ onLoginSuccess, onSwitchToRegister, initialNotic
       localStorage.setItem("termShieldToken", response.access_token);
       onLoginSuccess?.(response);
     } catch (requestError) {
-      setError(
-        requestError?.response?.data?.detail ||
-          requestError?.response?.data?.message ||
-          requestError?.message ||
-          "Unable to sign in. Check your credentials and try again."
-      );
+      let errorMessage = "Unable to sign in. Check your credentials and try again.";
+
+      if (!requestError?.response) {
+        if (
+          requestError?.code === "ECONNABORTED" ||
+          requestError?.message?.toLowerCase().includes("timeout")
+        ) {
+          errorMessage =
+            "The server took too long to respond. Please check your internet connection and try again.";
+        } else {
+          errorMessage =
+            "Unable to connect to the Term Shield server. The service may be waking up or your internet connection was interrupted. Please wait a moment and try again.";
+        }
+      } else {
+        const status = requestError.response.status;
+        const data = requestError.response.data;
+
+        if (status === 401) {
+          errorMessage =
+            data?.detail || "Invalid email or password. Please verify your credentials.";
+        } else if (status === 403) {
+          errorMessage =
+            data?.detail || "This user account is inactive. Please contact support.";
+        } else if (status === 400 || status === 422) {
+          if (Array.isArray(data?.detail)) {
+            errorMessage = data.detail
+              .map((err) => err.msg || err.message || "Invalid input")
+              .join(". ");
+          } else {
+            errorMessage =
+              data?.detail ||
+              data?.message ||
+              "Please check the entered email and password.";
+          }
+        } else if (status >= 500) {
+          errorMessage =
+            "A temporary server error occurred. Please try again in a few moments.";
+        } else {
+          errorMessage =
+            data?.detail ||
+            data?.message ||
+            "Unable to sign in. Check your credentials and try again.";
+        }
+      }
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

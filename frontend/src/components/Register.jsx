@@ -152,6 +152,7 @@ export default function Register({ onRegisterSuccess }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (loading) return;
 
     const normalizedName = fullName.trim();
     const normalizedEmail = email.trim();
@@ -195,12 +196,50 @@ export default function Register({ onRegisterSuccess }) {
       localStorage.setItem("termShieldToken", response.access_token);
       onRegisterSuccess?.(response);
     } catch (requestError) {
-      setError(
-        requestError?.response?.data?.detail ||
-          requestError?.response?.data?.message ||
-          requestError?.message ||
-          "Unable to create your account. Please try again."
-      );
+      let errorMessage = "Unable to create your account. Please try again.";
+
+      if (!requestError?.response) {
+        if (
+          requestError?.code === "ECONNABORTED" ||
+          requestError?.message?.toLowerCase().includes("timeout")
+        ) {
+          errorMessage =
+            "The server took too long to respond. Please check your internet connection and try again.";
+        } else {
+          errorMessage =
+            "Unable to connect to the Term Shield server. The service may be waking up or your internet connection was interrupted. Please wait a moment and try again.";
+        }
+      } else {
+        const status = requestError.response.status;
+        const data = requestError.response.data;
+
+        if (status === 409) {
+          errorMessage =
+            data?.detail ||
+            "An account with this email address already exists. Please sign in instead.";
+        } else if (status === 422 || status === 400) {
+          if (Array.isArray(data?.detail)) {
+            errorMessage = data.detail
+              .map((err) => err.msg || err.message || "Invalid input")
+              .join(". ");
+          } else {
+            errorMessage =
+              data?.detail ||
+              data?.message ||
+              "Please check the provided information and try again.";
+          }
+        } else if (status >= 500) {
+          errorMessage =
+            "A temporary server error occurred. Please try again in a few moments.";
+        } else {
+          errorMessage =
+            data?.detail ||
+            data?.message ||
+            "Unable to create your account. Please try again.";
+        }
+      }
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
