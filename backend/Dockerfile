@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-osd \
+    libtesseract5 \
     liblept5 \
     libjpeg62-turbo \
     libpng16-16 \
