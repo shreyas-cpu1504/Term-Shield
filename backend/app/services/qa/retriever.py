@@ -96,6 +96,67 @@ class ClauseRetriever:
         },
     }
 
+    TELUGU_CONCEPT_MAP: dict[str, list[str]] = {
+        "చెల్లింపు": ["payment", "pay", "fee", "fees", "invoice", "cost", "charge", "amount", "remuneration", "compensation"],
+        "చెల్లింపులు": ["payments", "fees", "invoices", "costs", "charges"],
+        "చెల్లించ": ["pay", "payment", "due", "invoiced"],
+        "చెల్లించాలి": ["pay", "payment", "due", "shall pay", "must pay"],
+        "చెల్లించే": ["payable", "paying", "payment"],
+        "రుసుము": ["fee", "fees", "charge", "cost"],
+        "ఫీజు": ["fee", "fees", "charge", "cost"],
+        "ఖర్చు": ["cost", "expense", "expenses", "fee"],
+        "చార్జీ": ["charge", "charges", "fee"],
+        "ఇన్వాయిస్": ["invoice", "invoices", "billing"],
+        "డబ్బు": ["money", "payment", "sum", "amount"],
+        "డబ్బులు": ["money", "payment", "sum", "amount"],
+        "మొత్తం": ["amount", "total", "sum"],
+        "బాధ్యత": ["obligation", "duty", "duties", "shall", "must", "responsibility", "responsible"],
+        "బాధ్యతలు": ["obligations", "duties", "responsibilities", "shall", "must", "covenant"],
+        "కర్తవ్యం": ["duty", "duties", "obligation"],
+        "చేయాల్సింది": ["duty", "obligation", "shall", "must", "required"],
+        "నిబంధన": ["clause", "term", "condition", "provision"],
+        "నిబంధనలు": ["terms", "conditions", "provisions", "clauses"],
+        "రద్దు": ["terminate", "termination", "cancel", "cancellation", "convenience"],
+        "ముగింపు": ["termination", "end", "terminate", "expiration"],
+        "ముగించ": ["terminate", "end", "cancel"],
+        "గడువు": ["deadline", "timeline", "timeframe", "due date", "days"],
+        "సమయం": ["time", "timeline", "period", "days"],
+        "నోటీసు": ["notice", "written notice", "days notice"],
+        "వ్యవధి": ["period", "term", "duration", "days", "months"],
+        "రోజులు": ["days"],
+        "తేదీ": ["date"],
+        "పునరుద్ధరణ": ["renew", "renewal", "extend", "extension"],
+        "పొడిగింపు": ["extension", "renew", "renewal"],
+        "జరిమానా": ["penalty", "fine", "late fee", "damages", "interest"],
+        "పెనాల్టీ": ["penalty", "late charge", "interest", "damages"],
+        "వడ్డీ": ["interest", "rate", "late payment"],
+        "ఆలస్య": ["late", "delay"],
+        "ఉల్లంఘన": ["breach", "default", "violation"],
+        "డిఫాల్ట్": ["default", "breach"],
+        "రిస్క్": ["risk", "liability", "indemnity", "unlimited liability"],
+        "ప్రమాదం": ["risk", "danger", "liability"],
+        "ముప్పు": ["risk", "danger"],
+        "నష్టం": ["loss", "damages", "harm"],
+        "నష్టపరిహారం": ["indemnity", "indemnify", "damages", "compensation", "hold harmless"],
+        "హాని": ["harm", "damage", "loss"],
+        "గోప్యత": ["confidential", "confidentiality", "non-disclosure"],
+        "రహస్య": ["confidential", "secret", "proprietary"],
+        "చట్టం": ["law", "governing law", "jurisdiction"],
+        "అధికార పరిధి": ["jurisdiction", "courts", "governing law"],
+        "పాలక": ["governing", "applicable law"],
+        "సారాంశం": ["summary", "overview", "main purpose"],
+        "ముఖ్య ఉద్దేశం": ["main purpose", "purpose", "scope"],
+        "ముఖ్యమైన": ["important", "critical", "key"],
+        "అత్యంత ముఖ్యమైన": ["most important", "critical", "key"],
+        "సంతకం": ["sign", "signing", "execution"],
+        "ఒప్పందం": ["agreement", "contract"],
+        "కాంట్రాక్ట్": ["contract", "agreement"],
+        "కస్టమర్": ["customer", "client"],
+        "క్లయింట్": ["client", "customer"],
+        "వెండర్": ["vendor", "service provider"],
+        "సర్వీస్": ["service", "services"],
+    }
+
     BOILERPLATE_PATTERNS: list[str] = [
         r"^table\s+of\s+contents",
         r"^skip\s+to\s+(?:main\s+)?content",
@@ -219,6 +280,16 @@ class ClauseRetriever:
         # Extract search tokens excluding stopwords
         all_tokens = [w.lower() for w in re.findall(r"\b[\w]{2,}\b", query)]
         q_tokens = {w for w in all_tokens if w not in cls.STOP_WORDS}
+
+        # Check if query contains any Telugu concepts and map to English
+        expanded_concept_tokens: set[str] = set()
+        for te_word, en_words in cls.TELUGU_CONCEPT_MAP.items():
+            if te_word in query:
+                for ew in en_words:
+                    expanded_concept_tokens.update(re.findall(r"\b[\w]{2,}\b", ew.lower()))
+
+        q_tokens.update(expanded_concept_tokens)
+
         # Roots (prefix 4+ chars) for flexible matching
         q_stems = {w[:5] for w in q_tokens if len(w) >= 4}
 
@@ -265,12 +336,32 @@ class ClauseRetriever:
             if intent_overlap:
                 score += len(intent_overlap) * 2.5
 
-            is_payment_q = bool(re.search(r"\b(?:pay\w*|fee\w*|invoic\w*|cost\w*|charg\w*)\b", query.lower()))
-            is_term_q = bool(re.search(r"\b(?:terminat\w*|cancel\w*)\b", query.lower()))
-            is_renew_q = bool(re.search(r"\b(?:renew\w*|auto-renew\w*)\b", query.lower()))
-            is_breach_q = bool(re.search(r"\b(?:breach|default|violate|violation)\b", query.lower()))
-            is_purpose_q = fine_intent in {"main_purpose", "purpose"} or bool(re.search(r"\b(?:main\s+purpose|purpose\s+of\s+this\s+page)\b", query.lower()))
-            is_most_imp_q = fine_intent in {"most_important_clause"} or bool(re.search(r"\bmost\s+important\b", query.lower()))
+            is_payment_q = (
+                bool(re.search(r"\b(?:pay\w*|fee\w*|invoic\w*|cost\w*|charg\w*)\b", query.lower()))
+                or any(w in query for w in ["చెల్లింపు", "చెల్లించ", "ఫీజు", "ఖర్చు", "రుసుము", "ఇన్వాయిస్", "డబ్బు", "డబ్బులు", "మొత్తం"])
+            )
+            is_term_q = (
+                bool(re.search(r"\b(?:terminat\w*|cancel\w*)\b", query.lower()))
+                or any(w in query for w in ["రద్దు", "ముగింపు", "రద్దుచేయడం", "ముగించ"])
+            )
+            is_renew_q = (
+                bool(re.search(r"\b(?:renew\w*|auto-renew\w*)\b", query.lower()))
+                or any(w in query for w in ["పునరుద్ధరణ", "పొడిగింపు", "ఆటోమేటిక్"])
+            )
+            is_breach_q = (
+                bool(re.search(r"\b(?:breach|default|violate|violation)\b", query.lower()))
+                or any(w in query for w in ["ఉల్లంఘన", "డిఫాల్ట్", "జరిమానా", "పెనాల్టీ"])
+            )
+            is_purpose_q = (
+                fine_intent in {"main_purpose", "purpose"}
+                or bool(re.search(r"\b(?:main\s+purpose|purpose\s+of\s+this\s+page)\b", query.lower()))
+                or any(w in query for w in ["ముఖ్య ఉద్దేశం", "సారాంశం", "దేని గురించి"])
+            )
+            is_most_imp_q = (
+                fine_intent in {"most_important_clause"}
+                or bool(re.search(r"\bmost\s+important\b", query.lower()))
+                or any(w in query for w in ["ముఖ్యమైన క్లాజ్", "అత్యంత ముఖ్యమైన"])
+            )
 
             if is_breach_q or fine_intent in {"breach"}:
                 if any(w in title_text for w in ["breach", "liability", "default", "remed"]):
@@ -358,14 +449,15 @@ class ClauseRetriever:
             if score > 0:
                 scored_clauses.append((score, c))
 
-        # 6. Fallback for contract-wide overview, summary, and advisory queries (e.g. "What should I know before signing?")
-        is_broad_query = fine_intent in {"summary", "simplification", "main_purpose", "purpose"} or bool(
+        # 6. Fallback for contract-wide overview, summary, advisory queries, or any contract query where zero specific clauses matched
+        is_broad_query = fine_intent in {"summary", "simplification", "main_purpose", "purpose", "general_contract"} or bool(
             re.search(
                 r"\b(?:important\s+terms|key\s+terms|overview|summary|summarize|what\s+does\s+this\s+contract\s+say|explain\s+this\s+contract|explain\s+this\s+agreement|before\s+signing|what\s+should\s+i\s+know|main\s+purpose)\b",
                 query.lower(),
             )
-        )
-        if len(scored_clauses) < 3 and clauses and is_broad_query:
+        ) or any(w in query for w in ["సారాంశం", "సంతకం చేసే ముందు", "ముఖ్యమైన నిబంధనలు", "కాంట్రాక్ట్ గురించి", "వివరించండి"])
+
+        if clauses and (len(scored_clauses) == 0 or (len(scored_clauses) < 3 and is_broad_query)):
             existing_cids = {
                 str(getattr(c, "clause_id", None) or getattr(c, "id", None) or getattr(c, "order", ""))
                 for _, c in scored_clauses

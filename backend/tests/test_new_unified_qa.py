@@ -131,6 +131,41 @@ class TestClauseRetriever:
         res = ClauseRetriever.exact_clause_retrieval("999", clauses)
         assert len(res) == 0
 
+    def test_telugu_semantic_retrieval(self):
+        clauses = sample_contract_clauses()
+        # Telugu payment obligations query retrieving English Clause 1
+        q_pay = "నా చెల్లింపు బాధ్యతలు ఏమిటి?"
+        analysis_pay = QuestionAnalyzer.analyze(q_pay)
+        assert analysis_pay.language == "Telugu"
+        assert analysis_pay.coarse_intent == "contract"
+        assert analysis_pay.fine_intent == "financial"
+
+        res_pay = ClauseRetriever.semantic_retrieval(q_pay, clauses, analysis_pay.fine_intent)
+        assert len(res_pay) > 0
+        assert res_pay[0].clause_number == "1"
+        assert "Payment" in res_pay[0].title
+
+        # Telugu termination query retrieving English Clause 4
+        q_term = "నేను ఈ ఒప్పందాన్ని రద్దు చేయవచ్చా?"
+        analysis_term = QuestionAnalyzer.analyze(q_term)
+        assert analysis_term.language == "Telugu"
+        assert analysis_term.fine_intent == "termination"
+
+        res_term = ClauseRetriever.semantic_retrieval(q_term, clauses, analysis_term.fine_intent)
+        assert len(res_term) > 0
+        assert res_term[0].clause_number == "4"
+        assert "Termination" in res_term[0].title
+
+        # Telugu risk query retrieving English Clause 6
+        q_risk = "ఈ కాంట్రాక్ట్‌లో ప్రధాన రిస్క్‌లు ఏమిటి?"
+        analysis_risk = QuestionAnalyzer.analyze(q_risk)
+        assert analysis_risk.language == "Telugu"
+        assert analysis_risk.fine_intent == "risk"
+
+        res_risk = ClauseRetriever.semantic_retrieval(q_risk, clauses, analysis_risk.fine_intent)
+        assert len(res_risk) > 0
+        assert res_risk[0].clause_number == "6"
+
 
 class TestEvidenceIntegrity:
     def test_truncated_text_detection(self):

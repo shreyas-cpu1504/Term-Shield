@@ -186,10 +186,18 @@ class AnswerValidator:
                 result = f"According to the available contract text, {result[0].lower() + result[1:] if len(result) > 1 else result}"
         else:
             # If evidence has clause numbers, ensure the answer explicitly cites the verified clause number(s)
-            if not any(f"clause {num}" in result.lower() for num in valid_numbers):
+            has_clause_cite = any(
+                f"clause {num}" in result.lower() or f"క్లాజ్ {num}" in result or f"खंड {num}" in result
+                for num in valid_numbers
+            )
+            if not has_clause_cite:
                 if len(retrieved) == 1 and retrieved[0].clause_number:
                     num = str(retrieved[0].clause_number)
-                    if re.match(r"^based on the contract evidence provided,?\s*", result, flags=re.IGNORECASE):
+                    if re.search(r"[\u0C00-\u0C7F]", result):
+                        result = f"క్లాజ్ {num} ప్రకారం: {result}"
+                    elif re.search(r"[\u0900-\u097F]", result):
+                        result = f"खंड {num} के अनुसार: {result}"
+                    elif re.match(r"^based on the contract evidence provided,?\s*", result, flags=re.IGNORECASE):
                         result = re.sub(r"^based on the contract evidence provided,?\s*", f"Under Clause {num}, ", result, flags=re.IGNORECASE)
                     elif re.match(r"^according to the contract,?\s*", result, flags=re.IGNORECASE):
                         result = re.sub(r"^according to the contract,?\s*", f"Under Clause {num}, ", result, flags=re.IGNORECASE)
@@ -294,7 +302,12 @@ class AnswerValidator:
             return "I could not find enough relevant information in the uploaded contract to answer this question."
 
         primary = evidence[0]
-        clause_label = f"Clause {primary.clause_number}" if primary.clause_number else (primary.title or "the contract text")
+        if lang == "Telugu":
+            clause_label = f"క్లాజ్ {primary.clause_number}" if primary.clause_number else (primary.title or "కాంట్రాక్ట్ నిబంధన")
+        elif lang == "Hindi":
+            clause_label = f"खंड {primary.clause_number}" if primary.clause_number else (primary.title or "अनुबंध की शर्त")
+        else:
+            clause_label = f"Clause {primary.clause_number}" if primary.clause_number else (primary.title or "the contract text")
 
         text = (primary.text or "").strip()
         integrity = EvidenceIntegrityChecker.check_clause_text(text)

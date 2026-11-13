@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +40,11 @@ class QAService:
         if not text or not text.strip():
             return None
         analysis = QuestionAnalyzer.analyze(text)
-        if analysis.coarse_intent == "general" and analysis.cleaned_question.lower() in QuestionAnalyzer.GREETINGS_OR_GENERAL:
+        cleaned_norm = re.sub(r"[!.,?]+$", "", analysis.cleaned_question).strip().lower()
+        if analysis.coarse_intent == "general" and (
+            cleaned_norm in QuestionAnalyzer.GREETINGS_OR_GENERAL
+            or any(cleaned_norm.startswith(g) for g in ["hi ", "hello ", "hey "])
+        ):
             return AnswerGenerator._handle_general_conversational(analysis.cleaned_question, analysis.language)
         return None
 
@@ -149,10 +154,15 @@ class QAService:
             if not retrieved:
                 # Target clause was not found in the current contract.
                 # Never use lexical retrieval to guess a different clause.
+                not_found_msg = (
+                    f"క్లాజ్ {analysis.clause_number} అప్‌లోడ్ చేసిన కాంట్రాక్ట్‌లో కనుగొనబడలేదు."
+                    if analysis.language == "Telugu"
+                    else f"Clause {analysis.clause_number} was not found in the uploaded contract."
+                )
                 return QuestionResponse(
                     file_id=file_id,
                     question=question,
-                    answer=f"Clause {analysis.clause_number} was not found in the uploaded contract.",
+                    answer=not_found_msg,
                     language=analysis.language,
                     evidence=[],
                     confidence=0.0,
@@ -184,11 +194,18 @@ class QAService:
 
         # If no relevant evidence was found
         if not retrieved:
-            clause_msg = (
-                f"Clause {analysis.clause_number} was not found in the uploaded contract."
-                if analysis.clause_number
-                else "I could not find enough relevant information in the uploaded contract to answer this question."
-            )
+            if analysis.language == "Telugu":
+                clause_msg = (
+                    f"క్లాజ్ {analysis.clause_number} అప్‌లోడ్ చేసిన కాంట్రాక్ట్‌లో కనుగొనబడలేదు."
+                    if analysis.clause_number
+                    else "ఈ ప్రశ్నకు సమాధానం ఇవ్వడానికి అప్‌లోడ్ చేసిన కాంట్రాక్ట్‌లో తగినంత సమాచారం కనుగొనబడలేదు."
+                )
+            else:
+                clause_msg = (
+                    f"Clause {analysis.clause_number} was not found in the uploaded contract."
+                    if analysis.clause_number
+                    else "I could not find enough relevant information in the uploaded contract to answer this question."
+                )
             return QuestionResponse(
                 file_id=file_id,
                 question=question,

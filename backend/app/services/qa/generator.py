@@ -71,6 +71,13 @@ class AnswerGenerator:
                 "OUTPUT LANGUAGE MANDATE: You MUST answer strictly in English. "
                 "Do NOT use Telugu, Hindi, or any other regional script unless explicitly instructed."
             )
+        elif target_lang.lower() == "telugu":
+            lang_mandate = (
+                "OUTPUT LANGUAGE MANDATE: The user asked in Telugu (తెలుగు). You MUST write your ENTIRE response in natural, fluent Telugu using Telugu script. "
+                "Do NOT answer in English. Explain the English contract terms clearly in simple everyday Telugu while strictly preserving the accurate legal meaning, "
+                "payment obligations, deadlines, and duties. Use natural Telugu phrasing (e.g. 'ఈ ఒప్పందం ప్రకారం...', 'కస్టమర్ చెల్లించాల్సిన బాధ్యత...'). "
+                "Cite verified clause numbers accurately (e.g. 'క్లాజ్ 1 ప్రకారం:'). Never make unsupported claims."
+            )
         else:
             lang_mandate = (
                 f"OUTPUT LANGUAGE MANDATE: You MUST write your ENTIRE response in {target_lang} using proper {target_lang} script. "
@@ -104,11 +111,31 @@ class AnswerGenerator:
                 f"Explain the meaning clearly in {target_lang} so the user understands their rights, duties, and deadlines."
             )
         elif analysis.fine_intent == "obligation":
-            format_guidance = (
-                "INTENT: OBLIGATIONS & ACTION ITEMS\n"
-                "Clearly explain what the user or party is REQUIRED TO DO. Break down specific action items, conditions, "
-                "notice requirements, and due dates based strictly on the verified evidence."
-            )
+            if target_lang.lower() == "telugu":
+                format_guidance = (
+                    "INTENT: OBLIGATIONS & ACTION ITEMS (TELUGU)\n"
+                    "Clearly explain what the user or party is REQUIRED TO DO in natural Telugu. Break down specific action items, conditions, "
+                    "notice requirements, and due dates based strictly on the verified evidence."
+                )
+            else:
+                format_guidance = (
+                    "INTENT: OBLIGATIONS & ACTION ITEMS\n"
+                    "Clearly explain what the user or party is REQUIRED TO DO. Break down specific action items, conditions, "
+                    "notice requirements, and due dates based strictly on the verified evidence."
+                )
+        elif analysis.fine_intent in {"financial", "payments"}:
+            if target_lang.lower() == "telugu":
+                format_guidance = (
+                    "INTENT: FINANCIAL & PAYMENT OBLIGATIONS (TELUGU)\n"
+                    "Clearly explain the user's or parties' payment duties, fees, invoices, due dates, and penalties in natural Telugu. "
+                    "Break down the terms into clear bullet points or short paragraphs citing the verified source clause(s) (e.g. 'క్లాజ్ 1 ప్రకారం:')."
+                )
+            else:
+                format_guidance = (
+                    "INTENT: FINANCIAL & PAYMENT OBLIGATIONS\n"
+                    "Clearly explain the user's or parties' payment duties, fees, invoices, due dates, and penalties based strictly on verified evidence. "
+                    "Break down the terms into clear bullet points or short paragraphs citing the verified source clause(s)."
+                )
         elif analysis.fine_intent == "penalty":
             format_guidance = (
                 "INTENT: CONSEQUENCES & IF YOU DON'T DO IT\n"

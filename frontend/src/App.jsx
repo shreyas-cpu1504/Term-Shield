@@ -20,6 +20,7 @@ import {
   Link,
   Image,
   Mic,
+  Square,
   Video,
   CheckCircle2,
   Trash2,
@@ -4983,8 +4984,134 @@ function AskMyTC({
   const [qaError, setQaError] = useState("");
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [voiceLang, setVoiceLang] = useState(() =>
+    languagePreferences?.language === "Telugu" ? "te-IN" : "en-IN"
+  );
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const draftPrefixRef = useRef("");
+
+  // Sync default voice language if language preference updates while not actively recording
+  useEffect(() => {
+    if (!isListening && languagePreferences?.language) {
+      if (languagePreferences.language === "Telugu") {
+        setVoiceLang("te-IN");
+      } else if (languagePreferences.language === "English") {
+        setVoiceLang("en-IN");
+      }
+    }
+  }, [languagePreferences?.language, isListening]);
+
+  // Clean up speech recognition instance on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    };
+  }, []);
+
+  const handleStopVoice = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+    setIsListening(false);
+  };
+
+  const handleToggleVoice = () => {
+    if (isListening) {
+      handleStopVoice();
+      return;
+    }
+
+    setVoiceError("");
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError(
+        "Voice recognition is not supported in this browser. Please use Chrome, Edge, or a browser with Web Speech API support."
+      );
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = voiceLang; // 'te-IN' or 'en-IN'
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      draftPrefixRef.current = draft.trim();
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError("");
+      };
+
+      recognition.onresult = (event) => {
+        let fullTranscript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript;
+        }
+
+        const trimmed = fullTranscript.trim();
+        if (trimmed) {
+          const prefix = draftPrefixRef.current;
+          setDraft(prefix ? `${prefix} ${trimmed}` : trimmed);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        setIsListening(false);
+        if (event.error === "not-allowed") {
+          setVoiceError(
+            "Microphone permission was denied. Please allow microphone access in your browser settings to use voice input."
+          );
+        } else if (event.error === "no-speech") {
+          setVoiceError("No speech was detected. Please try speaking into your microphone again.");
+        } else if (event.error === "network") {
+          setVoiceError(
+            "Network error during voice recognition. Please check your internet connection."
+          );
+        } else if (event.error !== "aborted") {
+          setVoiceError(`Voice recognition error: ${event.error || "Unable to recognize speech"}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      setIsListening(false);
+      setVoiceError(
+        err?.message || "Failed to start speech recognition. Please try again."
+      );
+    }
+  };
+
+  const handleVoiceLangChange = (langCode) => {
+    if (isListening) {
+      handleStopVoice();
+    }
+    setVoiceLang(langCode);
+    setVoiceError("");
+  };
 
   const hasContract = Boolean(activeFileId);
   const contractName =
@@ -5094,6 +5221,9 @@ function AskMyTC({
   }, [messages, isAsking]);
 
   const handleSend = async (questionOverride) => {
+    if (isListening) {
+      handleStopVoice();
+    }
     const question = (typeof questionOverride === "string" ? questionOverride : draft).trim();
     if (!question || !hasContract || isAsking || historyLoading) return;
 
@@ -5437,6 +5567,40 @@ function AskMyTC({
             </div>
           ) : (
             <>
+              {isListening && (
+                <div className="ask-voice-listening-bar" role="status" aria-live="polite">
+                  <span className="ask-voice-wave-dot dot-1" />
+                  <span className="ask-voice-wave-dot dot-2" />
+                  <span className="ask-voice-wave-dot dot-3" />
+                  <span className="ask-voice-listening-label">
+                    Listening in {voiceLang === "te-IN" ? "Telugu (తెలుగు)" : "English"}...
+                  </span>
+                  <button
+                    type="button"
+                    className="ask-voice-stop-btn"
+                    onClick={handleStopVoice}
+                    title="Stop recording"
+                  >
+                    Stop
+                  </button>
+                </div>
+              )}
+
+              {voiceError && (
+                <div className="ask-voice-error-banner" role="alert">
+                  <AlertCircle size={13} />
+                  <span>{voiceError}</span>
+                  <button
+                    type="button"
+                    className="ask-voice-error-close"
+                    onClick={() => setVoiceError("")}
+                    aria-label="Dismiss message"
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
+
               <div className="ask-input-box-wrapper">
                 <textarea
                   value={draft}
@@ -5449,6 +5613,59 @@ function AskMyTC({
                 />
 
                 <div className="ask-input-controls-row">
+                  <div
+                    className="ask-voice-lang-group"
+                    role="radiogroup"
+                    aria-label="Voice recognition language"
+                    title="Select speech recognition language"
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={voiceLang === "te-IN"}
+                      className={`ask-voice-lang-btn ${voiceLang === "te-IN" ? "active" : ""}`}
+                      onClick={() => handleVoiceLangChange("te-IN")}
+                      disabled={isAsking || historyLoading}
+                      title="Telugu speech (te-IN)"
+                    >
+                      తెలుగు
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={voiceLang === "en-IN"}
+                      className={`ask-voice-lang-btn ${voiceLang === "en-IN" ? "active" : ""}`}
+                      onClick={() => handleVoiceLangChange("en-IN")}
+                      disabled={isAsking || historyLoading}
+                      title="English speech (en-IN)"
+                    >
+                      EN
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`ask-mic-button ${isListening ? "is-listening" : ""}`}
+                    onClick={handleToggleVoice}
+                    disabled={isAsking || historyLoading}
+                    title={
+                      isListening
+                        ? "Stop listening"
+                        : `Voice input (${voiceLang === "te-IN" ? "Telugu" : "English"})`
+                    }
+                    aria-label={
+                      isListening
+                        ? "Stop voice recognition"
+                        : "Start voice recognition"
+                    }
+                  >
+                    {isListening ? (
+                      <Square size={13} className="ask-mic-stop-icon" />
+                    ) : (
+                      <Mic size={15} />
+                    )}
+                  </button>
+
                   <button
                     className="ask-send-button"
                     type="button"

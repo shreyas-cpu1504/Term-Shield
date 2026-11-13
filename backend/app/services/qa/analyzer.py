@@ -66,6 +66,8 @@ class QuestionAnalyzer:
         "thanks", "thank u", "thx", "bye", "goodbye", "see you", "see ya",
         "namaste", "namaskaram", "dhanyavadalu", "shukriya", "okay", "ok", "got it",
         "yup", "yep", "yeah", "yea", "cool", "sure", "alright", "noted",
+        "నమస్కారం", "నమస్తే", "హలో", "ధన్యవాదాలు", "థాంక్స్", "వీడ్కోలు",
+        "नमस्ते", "नमस्कार", "हेलो", "धन्यवाद", "शुक्रिया", "अलविदा",
     }
 
     CAPABILITY_PATTERNS: list[str] = [
@@ -120,7 +122,12 @@ class QuestionAnalyzer:
         if re.search(r"\b(?:now\s+(?:in|explain\s+in)?\s*english|in\s+english|english\s+please|switch\s+to\s+english|english\s*lo|englishlo)\b", q_low):
             return "English"
 
-        # 1. Regex checks for explicit language mention in query
+        # 1. Native script regex (highest fidelity indicator of question language)
+        for pattern, lang_name in cls.SCRIPT_LANGUAGE_MAP:
+            if re.search(pattern, question):
+                return lang_name
+
+        # 2. Regex checks for explicit language mention in query
         if re.search(r"\b(?:okasari\s+)?(?:telugu\s*lo|telugulo)(?:\s+(?:cheppu|cheppandi|cheppava|raayi|matladu|vivarincu|explain))?\b", q_low) or \
            re.search(r"(?:తెలుగులో\s*(?:చెప్పు|చెప్పండి|వివరించండి)|ఒకసారి\s*తెలుగులో)", q_raw):
             return "Telugu"
@@ -137,24 +144,21 @@ class QuestionAnalyzer:
             if re.search(rf"^{key}\s*(?:please|cheppu|batao|parayoo)?[!?.]*$", q_low):
                 return lang_name
 
-        # 2. Native script regex
-        for pattern, lang_name in cls.SCRIPT_LANGUAGE_MAP:
-            if re.search(pattern, question):
-                return lang_name
+        # 3. If question is typed in English (English words present and not transliterated Indic):
+        # Respond in English to match the user's question language.
+        has_english_words = bool(re.search(r"\b[a-zA-Z]{3,}\b", q_low))
+        is_explicit_english_question = has_english_words and not re.search(r"\b(?:lo|me|mein|cheppu|batao|ga|emiti|enti|evaru)\b", q_low)
+        if is_explicit_english_question:
+            return "English"
 
-        # 3. Explicit language parameter from frontend
+        # 4. Explicit language parameter from frontend (for single tokens or neutral queries)
         if explicit_language and explicit_language.strip():
             normalized = explicit_language.strip().title()
             if normalized in cls.KNOWN_LANGUAGES.values():
                 return normalized
 
-        # 4. History carryover:
-        # CRITICAL SAFETY: Never let a previous turn's language leak into a new English question!
-        # If current question contains English words and asks a question or mentions contract concepts,
-        # it is an English question.
-        has_english_words = bool(re.search(r"\b[a-zA-Z]{3,}\b", q_low))
-        is_explicit_english_question = has_english_words and not re.search(r"\b(?:lo|me|mein|cheppu|batao|ga)\b", q_low)
-        if not is_explicit_english_question and history:
+        # 5. History carryover ONLY if current question does NOT specify an English question
+        if history:
             for item in reversed(history):
                 prev_lang = item.get("language")
                 if prev_lang and prev_lang in cls.KNOWN_LANGUAGES.values() and prev_lang != "English":
@@ -342,7 +346,7 @@ class QuestionAnalyzer:
         if any(term in q_low for term in contract_terms):
             return "contract"
 
-        if re.search(r"(?:చెల్లింపు|రద్దు|ముగింపు|బాధ్యత|గడువు|పెనాల్టీ|రిస్క్|నోటీసు|నిబంధన)", q_raw):
+        if re.search(r"(?:చెల్లింపు|చెల్లించ|ఫీజు|ఖర్చు|రుసుము|ఇన్వాయిస్|డబ్బు|రద్దు|ముగింపు|బాధ్యత|బాధ్యతలు|గడువు|పెనాల్టీ|జరిమానా|రిస్క్|ప్రమాదం|నోటీసు|నిబంధన|నిబంధనలు|సంతకం|ఒప్పందం|కాంట్రాక్ట్|పునరుద్ధరణ|పొడిగింపు|వడ్డీ|నష్టం|నష్టపరిహారం|గోప్యత)", q_raw):
             return "contract"
 
         # If clauses exist and words overlap substantively with contract text, it's contract
@@ -400,37 +404,55 @@ class QuestionAnalyzer:
                             references_previous = True
                             break
 
-        # Fine intent determination based on substantive phrasing FIRST
+        # Fine intent determination based on substantive phrasing FIRST (multilingual: English + Telugu)
         q_low = cleaned.lower()
 
-        if re.search(r"\b(?:most\s+important\s+clause|most\s+critical\s+clause|key\s+clause|main\s+clause)\b", q_low):
+        if re.search(r"\b(?:most\s+important\s+clause|most\s+critical\s+clause|key\s+clause|main\s+clause)\b", q_low) or \
+           re.search(r"(?:అత్యంత ముఖ్యమైన|ముఖ్యమైన క్లాజ్)", cleaned):
             fine = "most_important_clause"
-        elif re.search(r"\b(?:main\s+purpose|purpose\s+of\s+this|what\s+is\s+this\s+(?:page|document|site|contract)\s+about)\b", q_low):
+        elif re.search(r"\b(?:main\s+purpose|purpose\s+of\s+this|what\s+is\s+this\s+(?:page|document|site|contract)\s+about)\b", q_low) or \
+             re.search(r"(?:సారాంశం|ముఖ్య ఉద్దేశం|కాంట్రాక్ట్ దేని గురించి|సంతకం చేసే ముందు)", cleaned):
             fine = "main_purpose"
-        elif re.search(r"\b(?:what\s+do\s+i\s+need\s+to\s+do|obligat\w*|dut\w*|responsib\w*|required\s+to\s+do|have\s+to\s+do|what\s+must\s+i\s+do)\b", q_low):
-            fine = "obligation"
-        elif re.search(r"\b(?:what\s+happens\s+if\s+i\s+don'?t|penalt\w*|late\s+fee\w*|interest|fine\w*|consequence\w*|default\w*|breach\w*)\b", q_low):
-            fine = "penalty"
-        elif re.search(r"\b(?:risk\w*|red\s+flag\w*|concern\w*|before\s+signing|is\s+it\s+risky|what\s+should\s+i\s+know)\b", q_low):
-            fine = "risk"
-        elif re.search(r"\b(?:who\s+is\s+responsible|who\s+is\s+liable|liab\w*|indemn\w*)\b", q_low):
-            fine = "responsibility"
-        elif re.search(r"\b(?:pay\w*|fee\w*|cost\w*|charg\w*|reimburs\w*|invoic\w*|need\s+to\s+pay|pay\s+anything)\b", q_low):
+        elif (re.search(r"\b(?:pay\w*|fee\w*|cost\w*|charg\w*|reimburs\w*|invoic\w*|need\s+to\s+pay|pay\s+anything)\b", q_low) or \
+              re.search(r"(?:చెల్లింపు|చెల్లించ|ఫీజు|రుసుము|ఖర్చు|చార్జీ|ఇన్వాయిస్|డబ్బు|డబ్బులు)", cleaned)) and \
+             (re.search(r"\b(?:obligat\w*|dut\w*|responsib\w*)\b", q_low) or re.search(r"(?:బాధ్యత|బాధ్యతలు|చేయాల్సింది|కర్తవ్యం)", cleaned)):
+            # Both payment and obligations present (e.g. "నా చెల్లింపు బాధ్యతలు ఏమిటి?" / "What are my payment obligations?")
             fine = "financial"
-        elif re.search(r"\b(?:deadlin\w*|timelin\w*|timeframe\w*|due\s+date|within\s+\d+|notice\s+period|when\s+must|how\s+long)\b", q_low):
+        elif re.search(r"\b(?:pay\w*|fee\w*|cost\w*|charg\w*|reimburs\w*|invoic\w*|need\s+to\s+pay|pay\s+anything)\b", q_low) or \
+             re.search(r"(?:చెల్లింపు|చెల్లించ|ఫీజు|రుసుము|ఖర్చు|చార్జీ|ఇన్వాయిస్|డబ్బు|డబ్బులు)", cleaned):
+            fine = "financial"
+        elif re.search(r"\b(?:what\s+do\s+i\s+need\s+to\s+do|obligat\w*|dut\w*|responsib\w*|required\s+to\s+do|have\s+to\s+do|what\s+must\s+i\s+do)\b", q_low) or \
+             re.search(r"(?:బాధ్యత|బాధ్యతలు|చేయాల్సింది|కర్తవ్యం)", cleaned):
+            fine = "obligation"
+        elif re.search(r"\b(?:what\s+happens\s+if\s+i\s+don'?t|penalt\w*|late\s+fee\w*|interest|fine\w*|consequence\w*|default\w*|breach\w*)\b", q_low) or \
+             re.search(r"(?:జరిమానా|పెనాల్టీ|ఆలస్య రుసుము|వడ్డీ|ఉల్లంఘన|డిఫాల్ట్)", cleaned):
+            fine = "penalty"
+        elif re.search(r"\b(?:risk\w*|red\s+flag\w*|concern\w*|before\s+signing|is\s+it\s+risky|what\s+should\s+i\s+know)\b", q_low) or \
+             re.search(r"(?:రిస్క్|ప్రమాదం|ముప్పు|నష్టపరిహారం|హాని)", cleaned):
+            fine = "risk"
+        elif re.search(r"\b(?:who\s+is\s+responsible|who\s+is\s+liable|liab\w*|indemn\w*)\b", q_low) or \
+             re.search(r"(?:ఎవరు బాధ్యులు|ఎవరి బాధ్యత|బాధ్యత వహించాలి)", cleaned):
+            fine = "responsibility"
+        elif re.search(r"\b(?:deadlin\w*|timelin\w*|timeframe\w*|due\s+date|within\s+\d+|notice\s+period|when\s+must|how\s+long)\b", q_low) or \
+             re.search(r"(?:గడువు|నోటీసు|వ్యవధి|సమయం|రోజులు|తేదీ)", cleaned):
             fine = "deadline"
-        elif re.search(r"\b(?:renew\w*|auto-renew\w*|extension\w*)\b", q_low):
+        elif re.search(r"\b(?:renew\w*|auto-renew\w*|extension\w*)\b", q_low) or \
+             re.search(r"(?:పునరుద్ధరణ|పొడిగింపు|ఆటోమేటిక్)", cleaned):
             fine = "renewal"
-        elif re.search(r"\b(?:terminat\w*|cancel\w*|end\s+the\s+contract|end\s+the\s+agreement)\b", q_low):
+        elif re.search(r"\b(?:terminat\w*|cancel\w*|end\s+the\s+contract|end\s+the\s+agreement)\b", q_low) or \
+             re.search(r"(?:రద్దు|ముగింపు|రద్దుచేయడం|ముగించ)", cleaned):
             fine = "termination"
-        elif re.search(r"\b(?:confidenti\w*|non-disclosure|trade\s+secret\w*)\b", q_low):
+        elif re.search(r"\b(?:confidenti\w*|non-disclosure|trade\s+secret\w*)\b", q_low) or \
+             re.search(r"(?:గోప్యత|రహస్య)", cleaned):
             fine = "confidentiality"
-        elif re.search(r"\b(?:govern\w*|jurisdiction|applicable\s+law)\b", q_low):
+        elif re.search(r"\b(?:govern\w*|jurisdiction|applicable\s+law)\b", q_low) or \
+             re.search(r"(?:పాలక చట్టం|అధికార పరిధి|చట్టం)", cleaned):
             fine = "governing_law"
-        elif re.search(r"\b(?:make\s+it\s+simple|explain\s+simply|explain\s+it\s+simply|simplify|simple\s+terms|in\s+simple\s+words|simpler|simple\s*ga)\b", q_low):
+        elif re.search(r"\b(?:make\s+it\s+simple|explain\s+simply|explain\s+it\s+simply|simplify|simple\s+terms|in\s+simple\s+words|simpler|simple\s*ga)\b", q_low) or \
+             re.search(r"(?:సులభంగా|సింపుల్గా|సరళంగా)", cleaned):
             fine = "simplification"
         elif re.search(r"\b(?:translate|translation|in\s+telugu|in\s+hindi|in\s+tamil|in\s+kannada|in\s+malayalam|in\s+marathi|in\s+bengali|in\s+gujarati|in\s+punjabi|in\s+urdu|telugu\s*lo|hindi\s*me|now\s+in\s+english)\b", q_low) or \
-             re.search(r"(?:తెలుగులో|చెప్పు)", q_low):
+             re.search(r"(?:తెలుగులో\s*(?:చెప్పు|చెప్పండి|వివరించండి)|ఒకసారి\s*తెలుగులో|translate\s+(?:to\s+)?telugu)", cleaned):
             fine = "translation"
         elif clause_num and not follow_up:
             fine = "explanation"
